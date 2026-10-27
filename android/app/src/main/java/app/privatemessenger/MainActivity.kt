@@ -76,6 +76,7 @@ private val JsonMedia = "application/json; charset=utf-8".toMediaType()
 private data class ChatItem(val id: String, val title: String, val kind: String, val createdAt: String)
 private data class MessageItem(val id: String, val senderId: String, val body: String, val createdAt: String)
 private data class Account(val id: String, val username: String, val displayName: String)
+private data class UserResult(val id: String, val username: String, val displayName: String)
 
 private object SessionCookies : CookieJar {
     private val saved = mutableMapOf<String, List<Cookie>>()
@@ -138,6 +139,17 @@ private object MessengerApi {
         val m = JSONObject(request("api/v1/conversations/${chatId}/messages", "POST", JSONObject().put("body", body)))
         return MessageItem(m.getString("id"), m.getString("senderId"), m.getString("body"), m.getString("createdAt"))
     }
+    suspend fun searchUsers(query: String): List<UserResult> {
+        val json = JSONArray(request("api/v1/users/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"))
+        return (0 until json.length()).map { i ->
+            val u = json.getJSONObject(i)
+            UserResult(u.getString("id"), u.getString("username"), u.getString("displayName"))
+        }
+    }
+    suspend fun directChat(username: String): ChatItem {
+        val c = JSONObject(request("api/v1/conversations/direct", "POST", JSONObject().put("username", username)))
+        return ChatItem(c.getString("id"), c.optString("title").ifBlank { username }, c.getString("kind"), c.optString("createdAt"))
+    }
     suspend fun create(kind: String, title: String): ChatItem {
         val c = JSONObject(request("api/v1/conversations", "POST", JSONObject().put("kind", kind).put("title", title)))
         return ChatItem(c.getString("id"), c.optString("title", title), c.getString("kind"), c.optString("createdAt"))
@@ -165,6 +177,9 @@ private fun MessengerApp() {
     var messages by remember { mutableStateOf<List<MessageItem>>(emptyList()) }
     var draft by remember { mutableStateOf("") }
     var createKind by remember { mutableStateOf<String?>(null) }
+    var showUserSearch by remember { mutableStateOf(false) }
+    var userQuery by remember { mutableStateOf("") }
+    var userResults by remember { mutableStateOf<List<UserResult>>(emptyList()) }
     var createTitle by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -243,11 +258,32 @@ private fun MessengerApp() {
                             Text("Private Messenger", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             Text("@${account!!.username}", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
+                        TextButton(onClick = { showUserSearch = !showUserSearch; userResults = emptyList(); userQuery = "" }) { Icon(Icons.Default.ChatBubble, null); Spacer(Modifier.width(3.dp)); Text("Личный") }
                         TextButton(onClick = { createKind = "group"; createTitle = "" }) { Icon(Icons.Default.Groups, null); Spacer(Modifier.width(3.dp)); Text("Группа") }
                         TextButton(onClick = { createKind = "channel"; createTitle = "" }) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(3.dp)); Text("Канал") }
                         TextButton(onClick = { runTask { MessengerApi.logout(); account = null; active = null; chats = emptyList(); messages = emptyList() } }) { Text("Выйти") }
                     }
                     if (error.isNotBlank()) Text(error, color = Color(0xFFFF929B), modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                    if (showUserSearch) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp).background(Background, RoundedCornerShape(14.dp)).padding(14.dp)) {
+                            Text("Новый личный чат", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(userQuery, { userQuery = it }, label = { Text("Имя или username") }, singleLine = true, modifier = Modifier.weight(1f))
+                                Button(enabled = !busy && userQuery.trim().length >= 2, onClick = { runTask { userResults = MessengerApi.searchUsers(userQuery.trim()) } }) { Text("Найти") }
+                            }
+                            userResults.forEach { result ->
+                                Row(Modifier.fillMaxWidth().clickable { runTask { val created = MessengerApi.directChat(result.username); showUserSearch = false; refreshChats(created.id) } }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(result.displayName, color = Color.White)
+                                        Text("@${result.username}", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text("Открыть", color = Accent, style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                            if (userResults.isEmpty()) Text("Введите не менее двух символов и нажмите «Найти».", color = Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                            TextButton(onClick = { showUserSearch = false }) { Text("Закрыть") }
+                        }
+                    }
                     if (createKind != null) {
                         Column(Modifier.fillMaxWidth().padding(12.dp).background(Background, RoundedCornerShape(14.dp)).padding(14.dp)) {
                             Text(if (createKind == "group") "Новая группа" else "Новый канал", color = Color.White, style = MaterialTheme.typography.titleMedium)
