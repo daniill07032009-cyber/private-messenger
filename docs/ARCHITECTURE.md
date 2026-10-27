@@ -11,7 +11,7 @@
 - CI covers Go tests/vet, web production build, and Android debug APK assembly/artifact upload.
 
 ## Current limitations
-- Cross-session message visibility uses periodic refresh, not WebSocket delivery.
+- Web message delivery uses authenticated WebSockets with reconnect and periodic REST fallback. Android currently uses periodic refresh.
 - Direct chats do not yet have full member-management UI; group/channel invitation, roles management, ownership transfer, and public/private links are pending.
 - Media uploads, notifications, voice/video calls, and end-to-end encryption are not implemented.
 - Android session cookies are held in memory and may be lost when the app process ends.
