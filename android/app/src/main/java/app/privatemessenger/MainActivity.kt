@@ -153,11 +153,28 @@ private object MessengerApi {
         val c = JSONObject(request("api/v1/conversations/direct", "POST", JSONObject().put("username", username)))
         return ChatItem(c.getString("id"), c.optString("title").ifBlank { username }, c.getString("kind"), c.optString("createdAt"))
     }
-    fun connectMessages(chatId: String, onMessage: (MessageItem) -> Unit): WebSocket {
+    fun connectMessages(
+        chatId: String,
+        onMessage: (MessageItem) -> Unit,
+        onDisconnected: () -> Unit
+    ): WebSocket {
         val wsUrl = baseUrl.replaceFirst("http", "ws") + "api/v1/ws?conversationId=" +
             java.net.URLEncoder.encode(chatId, "UTF-8")
         val request = Request.Builder().url(wsUrl).build()
         return client.newWebSocket(request, object : WebSocketListener() {
+            @Volatile private var disconnectReported = false
+
+            private fun reportDisconnected() {
+                if (!disconnectReported) {
+                    disconnectReported = true
+                    onDisconnected()
+                }
+            }
+
+            override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
+                disconnectReported = false
+            }
+
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val event = JSONObject(text)
@@ -167,6 +184,14 @@ private object MessengerApi {
                 } catch (_: Exception) {
                     // Ignore malformed events; REST history refresh remains available as a fallback.
                 }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                reportDisconnected()
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: okhttp3.Response?) {
+                reportDisconnected()
             }
         })
     }
@@ -203,6 +228,7 @@ private fun MessengerApp() {
     var createTitle by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var socketRetry by remember { mutableStateOf(0) }
 
     suspend fun refreshChats(selectId: String? = null) {
         chats = MessengerApi.chats()
@@ -221,16 +247,33 @@ private fun MessengerApp() {
     LaunchedEffect(Unit) {
         try { account = MessengerApi.me(); refreshChats() } catch (_: Exception) { /* show sign-in when no valid session exists */ }
     }
-    DisposableEffect(account?.id, active?.id) {
+    DisposableEffect(account?.id, active?.id, socketRetry) {
         val chatId = active?.id
+        var disposed = false
+        var reconnectScheduled = false
         val socket = if (account != null && chatId != null) {
-            MessengerApi.connectMessages(chatId) { incoming ->
-                scope.launch {
-                    messages = (messages + incoming).distinctBy { it.id }.sortedBy { it.createdAt }
+            MessengerApi.connectMessages(
+                chatId,
+                onMessage = { incoming ->
+                    scope.launch {
+                        messages = (messages + incoming).distinctBy { it.id }.sortedBy { it.createdAt }
+                    }
+                },
+                onDisconnected = {
+                    if (!disposed && !reconnectScheduled) {
+                        reconnectScheduled = true
+                        scope.launch {
+                            delay(2000)
+                            if (!disposed) socketRetry += 1
+                        }
+                    }
                 }
-            }
+            )
         } else null
-        onDispose { socket?.close(1000, "conversation changed") }
+        onDispose {
+            disposed = true
+            socket?.close(1000, "conversation changed")
+        }
     }
     LaunchedEffect(account?.id, active?.id) {
         val chatId = active?.id

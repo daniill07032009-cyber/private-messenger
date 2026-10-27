@@ -20,7 +20,7 @@ An independent messaging platform for web and Android with a familiar chat-first
 - CI builds the Android debug APK and uploads it as a workflow artifact when the build succeeds.
 
 ## Current limitations
-- Web uses authenticated WebSocket delivery with reconnect and a periodic REST fallback. Android also receives WebSocket events and refreshes history every 15 seconds as a fallback; automatic WebSocket reconnect on Android is still pending.
+- Web uses authenticated WebSocket delivery with reconnect and a periodic REST fallback. Android receives WebSocket events, retries disconnected sockets after 2 seconds, and refreshes history every 15 seconds as a fallback.
 - Group membership invitations, admin tools, public links, attachments, push notifications, voice/video calls, and end-to-end encryption are not implemented.
 - Android currently uses an in-memory cookie jar; a process restart may require signing in again.
 - The default Android API URL is http://10.0.2.2:8080/, intended for the Android emulator talking to a local development server. For a deployed backend, pass -PMESSENGER_API_URL=https://your-api.example/ to Gradle.
