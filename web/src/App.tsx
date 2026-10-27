@@ -47,6 +47,22 @@ export default function App() {
     api.me().then(async found => { setUser(found); await refreshChats(); }).catch(() => undefined);
   }, []);
 
+  // Refresh the active conversation so messages sent from another device appear without reopening it.
+  useEffect(() => {
+    if (!user || !active) return;
+    let disposed = false;
+    const syncMessages = async () => {
+      try {
+        const latest = await api.messages(active);
+        if (!disposed) setMessages(latest);
+      } catch {
+        // A transient network failure should not interrupt typing or sign the user out.
+      }
+    };
+    const interval = window.setInterval(() => { void syncMessages(); }, 4000);
+    return () => { disposed = true; window.clearInterval(interval); };
+  }, [user, active]);
+
   async function submitAuth(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
     try {
