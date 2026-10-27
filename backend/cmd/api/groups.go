@@ -149,7 +149,7 @@ func (s *server) transferOwnership(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not transfer ownership")
 		return
 	}
-	if err = tx.Exec(r.Context(), `UPDATE conversations SET created_by=$2 WHERE id=$1`, cid, in.UserID); err != nil {
+	if _, err = tx.Exec(r.Context(), `UPDATE conversations SET created_by=$2 WHERE id=$1`, cid, in.UserID); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not update conversation owner")
 		return
 	}
