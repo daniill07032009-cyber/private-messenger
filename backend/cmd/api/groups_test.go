@@ -55,6 +55,18 @@ func TestGroupRolesVisibilityAndInvitesIntegration(t *testing.T) {
 		t.Fatalf("decode group: %v", err)
 	}
 
+	settingsResponse := performJSONRequest(t, h, ownerCookie, http.MethodGet, "/api/v1/conversations/"+group.ID+"/settings", nil)
+	if settingsResponse.Code != http.StatusOK {
+		t.Fatalf("load group settings: got %d: %s", settingsResponse.Code, settingsResponse.Body.String())
+	}
+	var settings conversationSettings
+	if err := json.Unmarshal(settingsResponse.Body.Bytes(), &settings); err != nil {
+		t.Fatalf("decode group settings: %v", err)
+	}
+	if settings.CurrentRole != "owner" || settings.IsPublic || settings.ID != group.ID {
+		t.Fatalf("unexpected initial group settings: %#v", settings)
+	}
+
 	inviteResponse := performJSONRequest(t, h, ownerCookie, http.MethodPost, "/api/v1/conversations/"+group.ID+"/invite", map[string]string{})
 	if inviteResponse.Code != http.StatusCreated {
 		t.Fatalf("create invite: got %d: %s", inviteResponse.Code, inviteResponse.Body.String())
