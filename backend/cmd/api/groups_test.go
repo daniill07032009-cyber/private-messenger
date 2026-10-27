@@ -37,7 +37,7 @@ func TestGroupRolesVisibilityAndInvitesIntegration(t *testing.T) {
 	ownerName, memberName, discovererName := "owner"+suffix, "member"+suffix, "discoverer"+suffix
 	defer func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM conversations WHERE created_by IN (SELECT id FROM users WHERE username=$1 OR username=$2 OR username=$3)`, ownerName, memberName, discovererName)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1 OR username=$2`, ownerName, memberName)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1 OR username=$2 OR username=$3`, ownerName, memberName, discovererName)
 	}()
 
 	api := &server{db: pool, hub: newRealtimeHub()}
