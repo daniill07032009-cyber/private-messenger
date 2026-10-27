@@ -8,9 +8,11 @@ import (
  "net/http"
  "net/http/httptest"
  "os"
+ "strings"
  "testing"
  "time"
 
+ "github.com/gorilla/websocket"
  "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,7 +30,8 @@ func TestAuthAndDirectMessageIntegration(t *testing.T) {
   _,_=pool.Exec(cleanupCtx,`DELETE FROM conversations WHERE created_by IN (SELECT id FROM users WHERE username=$1 OR username=$2)`,usernameA,usernameB)
   _,_=pool.Exec(cleanupCtx,`DELETE FROM users WHERE username=$1 OR username=$2`,usernameA,usernameB)
  }()
- h:=(&server{db:pool}).routes()
+ api:=&server{db:pool,hub:newRealtimeHub()}
+ h:=api.routes()
  cookieA:=registerForTest(t,h,usernameA,"Alice Example")
  cookieB:=registerForTest(t,h,usernameB,"Bob Example")
  directBody,_:=json.Marshal(map[string]string{"username":usernameB})
@@ -47,6 +50,19 @@ func TestAuthAndDirectMessageIntegration(t *testing.T) {
  var messages []message
  if err:=json.Unmarshal(readRec.Body.Bytes(),&messages);err!=nil{t.Fatalf("decode messages: %v",err)}
  if len(messages)!=1||messages[0].Body!="Hello from integration test"{t.Fatalf("unexpected persisted messages: %#v",messages)}
+
+ testServer:=httptest.NewServer(h);defer testServer.Close()
+ headers:=http.Header{};headers.Add("Cookie","pm_session="+cookieB.Value)
+ wsURL:="ws"+strings.TrimPrefix(testServer.URL,"http")+"/api/v1/ws?conversationId="+c.ID
+ wsConn,_,err:=websocket.DefaultDialer.Dial(wsURL,headers);if err!=nil{t.Fatalf("connect websocket recipient: %v",err)};defer wsConn.Close()
+ _=wsConn.SetReadDeadline(time.Now().Add(5*time.Second))
+ secondBody,_:=json.Marshal(map[string]string{"body":"Instant websocket delivery"})
+ secondReq:=httptest.NewRequest(http.MethodPost,"/api/v1/conversations/"+c.ID+"/messages",bytes.NewReader(secondBody));secondReq.AddCookie(cookieA)
+ secondRec:=httptest.NewRecorder();h.ServeHTTP(secondRec,secondReq)
+ if secondRec.Code!=http.StatusCreated{t.Fatalf("send websocket test message: got %d: %s",secondRec.Code,secondRec.Body.String())}
+ var event realtimeEvent
+ if err:=wsConn.ReadJSON(&event);err!=nil{t.Fatalf("read websocket event: %v",err)}
+ if event.Type!="message"||event.Message.Body!="Instant websocket delivery"{t.Fatalf("unexpected websocket event: %#v",event)}
 }
 
 func registerForTest(t *testing.T,h http.Handler,username,displayName string)*http.Cookie {
