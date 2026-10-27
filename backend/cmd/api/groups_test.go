@@ -34,9 +34,9 @@ func TestGroupRolesVisibilityAndInvitesIntegration(t *testing.T) {
 	}
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
-	ownerName, memberName := "owner"+suffix, "member"+suffix
+	ownerName, memberName, discovererName := "owner"+suffix, "member"+suffix, "discoverer"+suffix
 	defer func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM conversations WHERE created_by IN (SELECT id FROM users WHERE username=$1 OR username=$2)`, ownerName, memberName)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM conversations WHERE created_by IN (SELECT id FROM users WHERE username=$1 OR username=$2 OR username=$3)`, ownerName, memberName, discovererName)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE username=$1 OR username=$2`, ownerName, memberName)
 	}()
 
@@ -44,6 +44,7 @@ func TestGroupRolesVisibilityAndInvitesIntegration(t *testing.T) {
 	h := api.routes()
 	ownerCookie := registerForTest(t, h, ownerName, "Group Owner")
 	memberCookie := registerForTest(t, h, memberName, "Group Member")
+	discovererCookie := registerForTest(t, h, discovererName, "Public Group Explorer")
 
 	created := performJSONRequest(t, h, ownerCookie, http.MethodPost, "/api/v1/conversations", map[string]string{"kind": "group", "title": "Integration Group"})
 	if created.Code != http.StatusCreated {
@@ -120,6 +121,22 @@ func TestGroupRolesVisibilityAndInvitesIntegration(t *testing.T) {
 	if !found {
 		t.Fatalf("public group not returned in discovery: %#v", publicGroups)
 	}
+	joinedPublic := performJSONRequest(t, h, discovererCookie, http.MethodPost, "/api/v1/conversations/"+group.ID+"/join-public", map[string]string{})
+	if joinedPublic.Code != http.StatusOK {
+		t.Fatalf("join public group: got %d: %s", joinedPublic.Code, joinedPublic.Body.String())
+	}
+	publicMembers := performJSONRequest(t, h, discovererCookie, http.MethodGet, "/api/v1/conversations/"+group.ID+"/members", nil)
+	if publicMembers.Code != http.StatusOK {
+		t.Fatalf("list members after public join: got %d: %s", publicMembers.Code, publicMembers.Body.String())
+	}
+	var joinedMembers []groupMember
+	if err := json.Unmarshal(publicMembers.Body.Bytes(), &joinedMembers); err != nil {
+		t.Fatalf("decode members after public join: %v", err)
+	}
+	if len(joinedMembers) != 3 {
+		t.Fatalf("expected public join to add third member, got %#v", joinedMembers)
+	}
+
 }
 
 func performJSONRequest(t *testing.T, h http.Handler, cookie *http.Cookie, method, path string, payload any) *httptest.ResponseRecorder {
