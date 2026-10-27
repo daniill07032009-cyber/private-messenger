@@ -1,46 +1,135 @@
-import { useState } from "react";
-import { Archive, Bell, Check, ChevronDown, CircleHelp, File, Hash, LockKeyhole, MessageCircle, MoreHorizontal, Paperclip, Phone, Plus, Search, Send, Settings, ShieldCheck, Smile, Users, Video } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Archive, Bell, Check, CircleHelp, Hash, LockKeyhole, LogOut, MessageCircle, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users } from "lucide-react";
+import { api, ApiConversation, ApiMessage, ApiUser } from "./api";
 
-type Chat = { id: number; name: string; preview: string; time: string; unread?: number; kind: "direct" | "group" | "channel"; color: string };
-const initialChats: Chat[] = [
-  { id: 1, name: "Избранное", preview: "Личные заметки и сохранённые сообщения", time: "17:42", kind: "direct", color: "#477da8" },
-  { id: 2, name: "Команда", preview: "Добро пожаловать в Private Messenger", time: "17:35", unread: 2, kind: "group", color: "#8a6dc1" },
-  { id: 3, name: "Обновления", preview: "Новости и объявления проекта", time: "16:58", kind: "channel", color: "#3b9d89" },
-];
+type Chat = { id: string; name: string; preview: string; time: string; kind: "direct" | "group" | "channel"; color: string };
+const palette = ["#477da8", "#8a6dc1", "#3b9d89", "#bb7954", "#478eaa"];
+const timeLabel = (value: string) => new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const toChat = (c: ApiConversation): Chat => ({ id: c.id, name: c.title || (c.kind === "direct" ? "Личная переписка" : "Без названия"), preview: "Откройте переписку", time: timeLabel(c.createdAt), kind: c.kind, color: palette[c.id.charCodeAt(0) % palette.length] });
+
 export default function App() {
-  const [chats, setChats] = useState(initialChats);
-  const [active, setActive] = useState(2);
+  const [user, setUser] = useState<ApiUser | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [active, setActive] = useState("");
+  const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "group" | "channel">("all");
   const [draft, setDraft] = useState("");
-  const [messages, setMessages] = useState<Record<number, string[]>>({ 2: ["Добро пожаловать! Это стартовый интерфейс проекта.", "Пока сообщения хранятся только в состоянии страницы — серверная синхронизация ещё не подключена."] });
+  const [newChatMenu, setNewChatMenu] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newKind, setNewKind] = useState<"group" | "channel">("group");
+  const [showCreate, setShowCreate] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
   const current = chats.find(c => c.id === active);
-  const filtered = chats.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.preview.toLowerCase().includes(search.toLowerCase()));
-  function sendMessage() {
-    const value = draft.trim();
-    if (!value || !current) return;
-    setMessages(prev => ({ ...prev, [active]: [...(prev[active] ?? []), value] }));
-    setChats(prev => [{ ...prev.find(c => c.id === active)!, preview: value, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }, ...prev.filter(c => c.id !== active)]);
-    setDraft("");
+  const filtered = useMemo(() => chats.filter(c => (filter === "all" || c.kind === filter) && (c.name.toLowerCase().includes(search.toLowerCase()) || c.preview.toLowerCase().includes(search.toLowerCase()))), [chats, filter, search]);
+
+  async function refreshChats(preferredId?: string) {
+    const result = await api.conversations();
+    const mapped = result.map(toChat);
+    setChats(mapped);
+    const next = preferredId || (mapped.some(c => c.id === active) ? active : mapped[0]?.id || "");
+    setActive(next);
+    if (next) setMessages(await api.messages(next));
+    else setMessages([]);
   }
+
+  useEffect(() => {
+    api.me().then(async found => { setUser(found); await refreshChats(); }).catch(() => undefined);
+  }, []);
+
+  async function submitAuth(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError("");
+    try {
+      const found = authMode === "register"
+        ? await api.register(username, displayName, password)
+        : await api.login(username, password);
+      setUser(found); setPassword(""); await refreshChats();
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось выполнить вход"); }
+    finally { setBusy(false); }
+  }
+
+  async function selectChat(id: string) {
+    setActive(id); setShowInfo(false); setError("");
+    try { setMessages(await api.messages(id)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить сообщения"); }
+  }
+
+  async function sendMessage() {
+    const value = draft.trim();
+    if (!value || !current || busy) return;
+    setBusy(true); setError("");
+    try {
+      const sent = await api.sendMessage(active, value);
+      setMessages(prev => [...prev, sent]);
+      setChats(prev => {
+        const updated = prev.map(c => c.id === active ? { ...c, preview: value, time: timeLabel(sent.createdAt) } : c);
+        return [...updated.filter(c => c.id === active), ...updated.filter(c => c.id !== active)];
+      });
+      setDraft("");
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось отправить сообщение"); }
+    finally { setBusy(false); }
+  }
+
+  async function createConversation(event: FormEvent) {
+    event.preventDefault(); if (!newTitle.trim()) return;
+    setBusy(true); setError("");
+    try {
+      const created = await api.createConversation(newKind, newTitle.trim());
+      setShowCreate(false); setNewChatMenu(false); setNewTitle("");
+      await refreshChats(created.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать чат"); }
+    finally { setBusy(false); }
+  }
+
+  async function signOut() {
+    try { await api.logout(); } catch { /* clear the local view even if the session has expired */ }
+    setUser(null); setChats([]); setMessages([]); setActive(""); setError("");
+  }
+
+  if (!user) return <main className="auth-shell">
+    <form className="auth-card" onSubmit={submitAuth}>
+      <div className="auth-logo"><MessageCircle size={27}/></div>
+      <h1>Private Messenger</h1>
+      <p>Независимый мессенджер для общения</p>
+      <div className="auth-tabs"><button type="button" className={authMode === "login" ? "chosen" : ""} onClick={() => { setAuthMode("login"); setError(""); }}>Войти</button><button type="button" className={authMode === "register" ? "chosen" : ""} onClick={() => { setAuthMode("register"); setError(""); }}>Создать аккаунт</button></div>
+      {authMode === "register" && <label>Отображаемое имя<input autoComplete="name" value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={80} required placeholder="Как вас называть"/></label>}
+      <label>Имя пользователя<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} minLength={3} maxLength={32} pattern="[A-Za-z0-9_]+" required placeholder="например, alex_123"/></label>
+      <label>Пароль<input autoComplete={authMode === "login" ? "current-password" : "new-password"} type="password" value={password} onChange={e => setPassword(e.target.value)} minLength={10} maxLength={72} required placeholder="Не менее 10 символов"/></label>
+      {error && <div className="inline-error" role="alert">{error}</div>}
+      <button className="auth-submit" type="submit" disabled={busy}>{busy ? "Подождите…" : authMode === "login" ? "Войти" : "Зарегистрироваться"}</button>
+      <small>Аккаунты хранятся на сервере. Используйте уникальный пароль.</small>
+    </form>
+  </main>;
+
   return <main className="app-shell">
     <aside className="sidebar">
-      <header className="side-header"><button className="icon-button" aria-label="Меню"><MoreHorizontal /></button><div className="search-box"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск"/></div><button className="icon-button" aria-label="Настройки"><Settings /></button></header>
-      <nav className="filter-row"><button className="filter active"><MessageCircle size={15}/> Все чаты</button><button className="filter"><Users size={15}/> Группы</button><button className="filter"><Hash size={15}/> Каналы</button></nav>
-      <div className="chat-list">{filtered.map(chat => <button key={chat.id} className={"chat-item " + (active === chat.id ? "selected" : "")} onClick={() => setActive(chat.id)}>
-        <span className="avatar" style={{ background: chat.color }}>{chat.kind === "group" ? <Users/> : chat.kind === "channel" ? <Hash/> : chat.name.slice(0, 1)}</span>
-        <span className="chat-copy"><span className="chat-top"><strong>{chat.name}</strong><time>{chat.time}</time></span><span className="chat-bottom"><span>{chat.preview}</span>{chat.unread ? <i>{chat.unread}</i> : null}</span></span>
-      </button>)}</div>
-      <button className="compose" aria-label="Создать чат" title="Создать чат" onClick={() => { const id = Date.now(); const chat: Chat = { id, name: "Новый чат", preview: "Черновик нового чата", time: "сейчас", kind: "direct", color: "#477da8" }; setChats(prev => [chat, ...prev]); setActive(id); }}> <Plus size={23}/></button>
-      <footer className="sidebar-footer"><span className="online-dot"/> Независимый мессенджер <span className="version">v0.1</span></footer>
+      <header className="side-header"><div className="profile-mark">{user.displayName.slice(0,1).toUpperCase()}</div><div className="search-box"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск чатов"/></div><button className="icon-button" aria-label="Настройки" onClick={() => setShowInfo(v => !v)}><Settings/></button></header>
+      <nav className="filter-row"><button className={filter === "all" ? "filter active" : "filter"} onClick={() => setFilter("all")}><MessageCircle size={15}/> Все</button><button className={filter === "group" ? "filter active" : "filter"} onClick={() => setFilter("group")}><Users size={15}/> Группы</button><button className={filter === "channel" ? "filter active" : "filter"} onClick={() => setFilter("channel")}><Hash size={15}/> Каналы</button></nav>
+      <div className="chat-list">{filtered.map(chat => <button key={chat.id} className={"chat-item " + (active === chat.id ? "selected" : "")} onClick={() => void selectChat(chat.id)}>
+        <span className="avatar" style={{ background: chat.color }}>{chat.kind === "group" ? <Users/> : chat.kind === "channel" ? <Hash/> : chat.name.slice(0,1)}</span>
+        <span className="chat-copy"><span className="chat-top"><strong>{chat.name}</strong><time>{chat.time}</time></span><span className="chat-bottom"><span>{chat.preview}</span></span></span>
+      </button>)}
+      {filtered.length === 0 && <div className="list-empty">{search ? "Ничего не найдено" : "Пока нет чатов. Создайте группу или канал."}</div>}</div>
+      <div className="compose-wrap"><button className="compose" aria-label="Создать группу или канал" title="Создать группу или канал" onClick={() => setNewChatMenu(v => !v)}><Plus size={23}/></button>
+      {newChatMenu && <div className="compose-menu"><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button></div>}</div>
+      <footer className="sidebar-footer"><span className="online-dot"/> {user.username} <button className="logout-button" onClick={() => void signOut()} title="Выйти" aria-label="Выйти"><LogOut size={15}/></button></footer>
     </aside>
     <section className="conversation">
       {current ? <>
-        <header className="conversation-header"><span className="avatar small" style={{ background: current.color }}>{current.kind === "group" ? <Users/> : current.kind === "channel" ? <Hash/> : current.name.slice(0,1)}</span><div className="conversation-title"><strong>{current.name}</strong><span>{current.kind === "channel" ? "Канал" : current.kind === "group" ? "Группа" : "Личная переписка"} · локальный демонстрационный режим</span></div><div className="header-actions"><button className="icon-button" aria-label="Аудиозвонок"><Phone/></button><button className="icon-button" aria-label="Видеозвонок"><Video/></button><button className="icon-button" aria-label="Уведомления"><Bell/></button><button className="icon-button" aria-label="Информация о чате" onClick={() => setShowInfo(!showInfo)}><MoreHorizontal/></button></div></header>
-        <div className="message-area"><div className="date-pill">Сегодня</div>{(messages[active] ?? []).map((message, index) => <div className="message-row own" key={index}><div className="message-bubble">{message}<span className="message-meta">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} <Check size={13}/></span></div></div>)}{(messages[active] ?? []).length === 0 && <div className="welcome"><span className="welcome-icon"><MessageCircle/></span><strong>Начните переписку</strong><span>Это демонстрационный интерфейс. Для реальных аккаунтов и доставки сообщений нужно подключить backend.</span></div>}</div>
-        <form className="composer" onSubmit={e => { e.preventDefault(); sendMessage(); }}><button type="button" className="icon-button" aria-label="Прикрепить файл"><Paperclip/></button><input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Написать сообщение…" aria-label="Сообщение"/><button type="button" className="icon-button" aria-label="Эмодзи"><Smile/></button><button type="submit" className="send-button" aria-label="Отправить"><Send size={19}/></button></form>
-      </> : <div className="empty-state">Выберите чат слева</div>}
+        <header className="conversation-header"><span className="avatar small" style={{ background: current.color }}>{current.kind === "group" ? <Users/> : current.kind === "channel" ? <Hash/> : current.name.slice(0,1)}</span><div className="conversation-title"><strong>{current.name}</strong><span>{current.kind === "channel" ? "Канал" : current.kind === "group" ? "Группа" : "Личная переписка"} · серверная переписка</span></div><div className="header-actions"><button className="icon-button" aria-label="Уведомления"><Bell/></button><button className="icon-button" aria-label="Информация о чате" onClick={() => setShowInfo(!showInfo)}><MoreHorizontal/></button></div></header>
+        <div className="message-area"><div className="date-pill">История сообщений</div>{messages.map(m => <div className={"message-row " + (m.senderId === user.id ? "own" : "")} key={m.id}><div className="message-bubble">{m.body}<span className="message-meta">{timeLabel(m.createdAt)} {m.senderId === user.id && <Check size={13}/>}</span></div></div>)}{messages.length === 0 && <div className="welcome"><span className="welcome-icon"><MessageCircle/></span><strong>Начните переписку</strong><span>Сообщения будут сохранены на сервере. Чтобы начать общение с другим человеком, следующим этапом добавим поиск пользователей и личные чаты.</span></div>}</div>
+        {error && <div className="chat-error" role="alert">{error}</div>}
+        <form className="composer" onSubmit={e => { e.preventDefault(); void sendMessage(); }}><button type="button" className="icon-button" aria-label="Прикрепить файл" title="Файлы появятся в следующем этапе"><Paperclip/></button><input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Написать сообщение…" aria-label="Сообщение" maxLength={4000}/><button type="button" className="icon-button" aria-label="Эмодзи" title="Эмодзи появятся в следующем этапе"><Smile/></button><button type="submit" className="send-button" aria-label="Отправить" disabled={busy || !draft.trim()}><Send size={19}/></button></form>
+      </> : <div className="empty-state"><MessageCircle size={35}/><strong>Ваши чаты</strong><span>Выберите чат или создайте группу либо канал.</span>{error && <span className="inline-error">{error}</span>}</div>}
     </section>
-    {showInfo && current && <aside className="info-panel"><header><strong>Информация о чате</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current.color }}>{current.name.slice(0,1)}</div><h2>{current.name}</h2><p className="muted">Демо-профиль · сервер ещё не подключён</p><div className="info-actions"><button><Bell size={16}/> Уведомления</button><button><Archive size={16}/> Архивировать</button><button><ShieldCheck size={16}/> Конфиденциальность</button><button><CircleHelp size={16}/> Помощь</button></div><div className="info-note"><LockKeyhole size={16}/> Не отправляйте настоящие секреты: это пока только интерфейс.</div><div className="info-note"><File size={16}/> Файлы и звонки ещё не подключены.</div><button className="add-member"><Plus size={16}/> Добавить участника (позже)</button><button className="info-link"><ChevronDown size={16}/> Дополнительные настройки</button></aside>}
+    {showInfo && <aside className="info-panel"><header><strong>Аккаунт и чат</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current?.color || "#477da8" }}>{(current?.name || user.displayName).slice(0,1)}</div><h2>{current?.name || user.displayName}</h2><p className="muted">@{user.username}</p><div className="info-actions"><button><Bell size={16}/> Уведомления</button><button><Archive size={16}/> Архивировать (позже)</button><button><ShieldCheck size={16}/> Конфиденциальность</button><button><CircleHelp size={16}/> Помощь</button></div><div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
+    {showCreate && <div className="modal-backdrop" onClick={() => setShowCreate(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void createConversation(e)}><h2>{newKind === "group" ? "Создать группу" : "Создать канал"}</h2><p>{newKind === "group" ? "Создайте пространство для общения." : "Создайте канал для публикаций."}</p><label>Название<input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} maxLength={120} required placeholder={newKind === "group" ? "Название группы" : "Название канала"}/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowCreate(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !newTitle.trim()}>{busy ? "Создание…" : "Создать"}</button></div></form></div>}
   </main>;
 }
