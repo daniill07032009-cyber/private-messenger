@@ -14,14 +14,19 @@ An independent messaging platform for web and Android with a familiar chat-first
 - PostgreSQL migrations applied automatically by the API at startup.
 - Authenticated conversation lists and persisted messages with membership checks.
 - User search and creation/reuse of direct conversations.
-- Group and channel creation.
+- Group and channel creation with owner/admin/member roles, ownership transfer, and protected role changes.
+- Public/private group and channel visibility, public community discovery, rotating invite codes, and shareable invite URLs.
+- Web management panel for member lists, role assignment, ownership transfer, visibility settings, invite creation, and joining public groups or by invite link/code.
+- Channel publishing is restricted to owners and admins; group members can post normally.
+- In-chat message search in both web and Android clients; web emoji picker and multiline composer.
 - Web client uses the real API; active histories refresh periodically to show messages from other sessions.
 - Android client uses the same API for authentication, chat lists, message history, sending messages, direct-chat discovery, and group/channel creation.
 - CI builds the Android debug APK and uploads it as a workflow artifact when the build succeeds.
 
 ## Current limitations
 - Web uses authenticated WebSocket delivery with reconnect and a periodic REST fallback. Android receives WebSocket events, retries disconnected sockets after 2 seconds, and refreshes history every 15 seconds as a fallback.
-- Group membership invitations, admin tools, public links, attachments, push notifications, voice/video calls, and end-to-end encryption are not implemented.
+- Full group management controls are currently available in the web client; Android still needs the equivalent member/role/visibility/invite screens.
+- Reporting, muting, member removal, attachments, push notifications, voice/video calls, and end-to-end encryption are not implemented.
 - Android currently uses an in-memory cookie jar; a process restart may require signing in again.
 - The default Android API URL is http://10.0.2.2:8080/, intended for the Android emulator talking to a local development server. For a deployed backend, pass -PMESSENGER_API_URL=https://your-api.example/ to Gradle.
 - Production deployment requires HTTPS, managed secrets, backups, monitoring, abuse controls and an independent security review.
