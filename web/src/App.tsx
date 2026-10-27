@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, ArrowRightLeft, Bell, Check, CircleHelp, Copy, Globe, Hash, LockKeyhole, LogOut, MessageCircle, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users } from "lucide-react";
-import { api, ApiConversation, ApiGroupMember, ApiGroupSettings, ApiMessage, ApiUser } from "./api";
+import { Archive, ArrowRightLeft, Bell, Check, CircleHelp, Compass, Copy, Globe, Hash, LockKeyhole, LogOut, MessageCircle, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users } from "lucide-react";
+import { api, ApiConversation, ApiGroupMember, ApiGroupSettings, ApiMessage, ApiPublicConversation, ApiUser } from "./api";
 
 type Chat = { id: string; name: string; preview: string; time: string; kind: "direct" | "group" | "channel"; color: string };
 const palette = ["#477da8", "#8a6dc1", "#3b9d89", "#bb7954", "#478eaa"];
@@ -35,6 +35,8 @@ export default function App() {
   const [inviteCode, setInviteCode] = useState("");
   const [inviteLink, setInviteLink] = useState("");
   const [showJoinInvite, setShowJoinInvite] = useState(false);
+  const [showPublicGroups, setShowPublicGroups] = useState(false);
+  const [publicGroups, setPublicGroups] = useState<ApiPublicConversation[]>([]);
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -241,6 +243,23 @@ export default function App() {
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать приглашение"); }
   }
 
+  async function openPublicGroups() {
+    setShowPublicGroups(true); setNewChatMenu(false); setBusy(true); setError("");
+    try { setPublicGroups(await api.publicConversations()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось загрузить публичные группы"); }
+    finally { setBusy(false); }
+  }
+
+  async function joinPublicGroup(group: ApiPublicConversation) {
+    setBusy(true); setError("");
+    try {
+      const joined = await api.joinPublicConversation(group.id);
+      setShowPublicGroups(false);
+      await refreshChats(joined.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось вступить в группу"); }
+    finally { setBusy(false); }
+  }
+
   async function joinByInvite(event: FormEvent) {
     event.preventDefault();
     const rawCode = joinCode.trim();
@@ -286,7 +305,7 @@ export default function App() {
       </button>)}
       {filtered.length === 0 && <div className="list-empty">{search ? "Ничего не найдено" : "Пока нет чатов. Создайте группу или канал."}</div>}</div>
       <div className="compose-wrap"><button className="compose" aria-label="Создать группу или канал" title="Создать группу или канал" onClick={() => setNewChatMenu(v => !v)}><Plus size={23}/></button>
-      {newChatMenu && <div className="compose-menu"><button onClick={() => { setShowUserSearch(true); setNewChatMenu(false); setError(""); }}><MessageCircle size={16}/> Личный чат</button><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button><button onClick={() => { setShowJoinInvite(true); setNewChatMenu(false); setError(""); }}><Users size={16}/> Вступить по коду</button></div>}</div>
+      {newChatMenu && <div className="compose-menu"><button onClick={() => { setShowUserSearch(true); setNewChatMenu(false); setError(""); }}><MessageCircle size={16}/> Личный чат</button><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button><button onClick={() => { setShowJoinInvite(true); setNewChatMenu(false); setError(""); }}><Users size={16}/> Вступить по коду</button><button onClick={() => void openPublicGroups()}><Compass size={16}/> Найти публичные группы</button></div>}</div>
       <footer className="sidebar-footer"><span className="online-dot"/> {user.username} <button className="logout-button" onClick={() => void signOut()} title="Выйти" aria-label="Выйти"><LogOut size={15}/></button></footer>
     </aside>
     <section className="conversation">
@@ -311,6 +330,7 @@ export default function App() {
       {inviteCode && <div className="invite-code"><small>Ссылка-приглашение (скопирована, если браузер разрешил)</small><code>{inviteLink || inviteCode}</code><button onClick={() => void navigator.clipboard?.writeText(inviteLink || inviteCode).catch(() => undefined)}><Copy size={13}/> Копировать ссылку</button></div>}
     </div> : <div className="info-actions"><button type="button" title="Настройки уведомлений появятся позже"><Bell size={16}/> Уведомления · скоро</button><button type="button" title="Архивирование чатов ещё не реализовано"><Archive size={16}/> Архив · скоро</button><button type="button" title="Политика безопасности сервера"><ShieldCheck size={16}/> Безопасность</button><button type="button" onClick={() => { setShowInfo(false); setError("Для помощи обратитесь к администратору сервера."); }}><CircleHelp size={16}/> Помощь</button></div>}<div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
     {showUserSearch && <div className="modal-backdrop" onClick={() => setShowUserSearch(false)}><section className="create-modal" onClick={e => e.stopPropagation()}><h2>Новый личный чат</h2><p>Найдите пользователя по имени или имени пользователя.</p><form className="user-search-form" onSubmit={e => void findUsers(e)}><input autoFocus value={userQuery} onChange={e => setUserQuery(e.target.value)} maxLength={50} placeholder="Введите имя или username"/><button className="auth-submit" type="submit" disabled={busy || userQuery.trim().length < 2}>{busy ? "Поиск…" : "Найти"}</button></form>{error && <div className="inline-error">{error}</div>}<div className="user-results">{userResults.map(result => <button key={result.id} onClick={() => void startDirectChat(result)} disabled={busy}><span className="result-avatar">{result.displayName.slice(0,1).toUpperCase()}</span><span><strong>{result.displayName}</strong><small>@{result.username}</small></span><MessageCircle size={17}/></button>)}{userResults.length === 0 && <span className="results-hint">Введите поисковый запрос, чтобы найти людей.</span>}</div><div className="modal-actions"><button type="button" onClick={() => setShowUserSearch(false)}>Закрыть</button></div></section></div>}
+    {showPublicGroups && <div className="modal-backdrop" onClick={() => setShowPublicGroups(false)}><section className="create-modal" onClick={e => e.stopPropagation()}><h2>Публичные группы и каналы</h2><p>Выберите сообщество, чтобы вступить.</p>{error && <div className="inline-error">{error}</div>}<div className="public-group-list">{publicGroups.map(group => <div className="public-group-item" key={group.id}><span className="result-avatar">{group.kind === "channel" ? "#" : group.title.slice(0,1).toUpperCase()}</span><span className="public-group-copy"><strong>{group.title}</strong><small>{group.kind === "channel" ? "Канал" : "Группа"} · {group.memberCount} участников</small></span><button type="button" disabled={busy} onClick={() => void joinPublicGroup(group)}>{busy ? "…" : "Вступить"}</button></div>)}{publicGroups.length === 0 && <span className="results-hint">{busy ? "Загрузка…" : "Пока нет публичных групп или каналов."}</span>}</div><div className="modal-actions"><button type="button" onClick={() => setShowPublicGroups(false)}>Закрыть</button></div></section></div>}
     {showJoinInvite && <div className="modal-backdrop" onClick={() => setShowJoinInvite(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void joinByInvite(e)}><h2>Вступить в группу или канал</h2><p>Вставьте код приглашения, который вам отправил владелец.</p><label>Код приглашения<input autoFocus value={joinCode} onChange={e => setJoinCode(e.target.value)} maxLength={64} required placeholder="Вставьте код приглашения"/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowJoinInvite(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !joinCode.trim()}>{busy ? "Подключение…" : "Вступить"}</button></div></form></div>}
     {showCreate && <div className="modal-backdrop" onClick={() => setShowCreate(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void createConversation(e)}><h2>{newKind === "group" ? "Создать группу" : "Создать канал"}</h2><p>{newKind === "group" ? "Создайте пространство для общения." : "Создайте канал для публикаций."}</p><label>Название<input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} maxLength={120} required placeholder={newKind === "group" ? "Название группы" : "Название канала"}/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowCreate(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !newTitle.trim()}>{busy ? "Создание…" : "Создать"}</button></div></form></div>}
   </main>;
