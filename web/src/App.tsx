@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Bell, Check, CircleHelp, Hash, LockKeyhole, LogOut, MessageCircle, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users } from "lucide-react";
-import { api, ApiConversation, ApiMessage, ApiUser } from "./api";
+import { Archive, ArrowRightLeft, Bell, Check, CircleHelp, Copy, Globe, Hash, LockKeyhole, LogOut, MessageCircle, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users } from "lucide-react";
+import { api, ApiConversation, ApiGroupMember, ApiGroupSettings, ApiMessage, ApiUser } from "./api";
 
 type Chat = { id: string; name: string; preview: string; time: string; kind: "direct" | "group" | "channel"; color: string };
 const palette = ["#477da8", "#8a6dc1", "#3b9d89", "#bb7954", "#478eaa"];
@@ -30,6 +30,11 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false);
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
+  const [groupSettings, setGroupSettings] = useState<ApiGroupSettings | null>(null);
+  const [groupMembers, setGroupMembers] = useState<ApiGroupMember[]>([]);
+  const [inviteCode, setInviteCode] = useState("");
+  const [showJoinInvite, setShowJoinInvite] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,6 +44,15 @@ export default function App() {
     return messages.filter(message => !query || message.body.toLocaleLowerCase().includes(query));
   }, [messages, messageSearch]);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showInfo || !current || current.kind === "direct") { setGroupSettings(null); setGroupMembers([]); setInviteCode(""); return; }
+    let cancelled = false;
+    Promise.all([api.groupSettings(current.id), api.groupMembers(current.id)]).then(([settings, members]) => {
+      if (!cancelled) { setGroupSettings(settings); setGroupMembers(members); }
+    }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Не удалось загрузить настройки группы"); });
+    return () => { cancelled = true; };
+  }, [showInfo, current?.id, current?.kind]);
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return chats.filter(c => (filter === "all" || c.kind === filter) &&
@@ -172,6 +186,54 @@ export default function App() {
     finally { setBusy(false); }
   }
 
+  async function refreshGroupDetails() {
+    if (!current || current.kind === "direct") return;
+    const [settings, members] = await Promise.all([api.groupSettings(current.id), api.groupMembers(current.id)]);
+    setGroupSettings(settings); setGroupMembers(members);
+  }
+
+  async function changeGroupVisibility(isPublic: boolean) {
+    if (!current) return;
+    try { await api.setGroupVisibility(current.id, isPublic); await refreshGroupDetails(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось изменить видимость"); }
+  }
+
+  async function changeMemberRole(member: ApiGroupMember, role: "admin" | "member") {
+    if (!current) return;
+    try { await api.setMemberRole(current.id, member.userId, role); await refreshGroupDetails(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось изменить роль участника"); }
+  }
+
+  async function transferGroupOwnership(member: ApiGroupMember) {
+    if (!current || !window.confirm(`Передать владение группой «${current.name}» пользователю @${member.username}? Вы станете администратором.`)) return;
+    try { await api.transferOwnership(current.id, member.userId); await refreshGroupDetails(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось передать владение"); }
+  }
+
+  async function createGroupInvite() {
+    if (!current) return;
+    try {
+      const result = await api.createInvite(current.id);
+      setInviteCode(result.code);
+      await refreshGroupDetails();
+      try { await navigator.clipboard.writeText(result.code); }
+      catch { /* the code remains visible so it can be copied manually */ }
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать приглашение"); }
+  }
+
+  async function joinByInvite(event: FormEvent) {
+    event.preventDefault();
+    const code = joinCode.trim();
+    if (!code) return;
+    setBusy(true); setError("");
+    try {
+      const joined = await api.joinInvite(code);
+      setShowJoinInvite(false); setJoinCode("");
+      await refreshChats(joined.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось вступить по приглашению"); }
+    finally { setBusy(false); }
+  }
+
   async function signOut() {
     try { await api.logout(); } catch { /* clear the local view even if the session has expired */ }
     setUser(null); setChats([]); setMessages([]); setActive(""); setShowEmojiPicker(false); setError("");
@@ -202,7 +264,7 @@ export default function App() {
       </button>)}
       {filtered.length === 0 && <div className="list-empty">{search ? "Ничего не найдено" : "Пока нет чатов. Создайте группу или канал."}</div>}</div>
       <div className="compose-wrap"><button className="compose" aria-label="Создать группу или канал" title="Создать группу или канал" onClick={() => setNewChatMenu(v => !v)}><Plus size={23}/></button>
-      {newChatMenu && <div className="compose-menu"><button onClick={() => { setShowUserSearch(true); setNewChatMenu(false); setError(""); }}><MessageCircle size={16}/> Личный чат</button><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button></div>}</div>
+      {newChatMenu && <div className="compose-menu"><button onClick={() => { setShowUserSearch(true); setNewChatMenu(false); setError(""); }}><MessageCircle size={16}/> Личный чат</button><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button><button onClick={() => { setShowJoinInvite(true); setNewChatMenu(false); setError(""); }}><Users size={16}/> Вступить по коду</button></div>}</div>
       <footer className="sidebar-footer"><span className="online-dot"/> {user.username} <button className="logout-button" onClick={() => void signOut()} title="Выйти" aria-label="Выйти"><LogOut size={15}/></button></footer>
     </aside>
     <section className="conversation">
@@ -214,8 +276,20 @@ export default function App() {
         <form className="composer" onSubmit={e => { e.preventDefault(); void sendMessage(); }}><button type="button" className="icon-button" aria-label="Прикрепить файл" title="Загрузка файлов пока не подключена" onClick={() => setError("Загрузка вложений пока не реализована.")}><Paperclip/></button><textarea className="message-input" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }} placeholder="Написать сообщение…" aria-label="Сообщение" maxLength={4000} rows={1}/><div className="emoji-wrap"><button type="button" className="icon-button" aria-label="Эмодзи" aria-expanded={showEmojiPicker} onClick={() => setShowEmojiPicker(v => !v)}><Smile/></button>{showEmojiPicker && <div className="emoji-picker" role="group" aria-label="Выбор эмодзи">{["😀","😁","😂","🥹","😊","😍","😘","😎","😭","😡","👍","👎","❤️","🔥","🎉","🙏","🤔","💯","👋","✨","💙","🥰","😴","🤝"].map(emoji => <button key={emoji} type="button" onClick={() => { setDraft(value => value + emoji); setShowEmojiPicker(false); }}>{emoji}</button>)}</div>}</div><button type="submit" className="send-button" aria-label="Отправить" disabled={busy || !draft.trim()}><Send size={19}/></button></form>
       </> : <div className="empty-state"><MessageCircle size={35}/><strong>Ваши чаты</strong><span>Выберите чат или создайте группу либо канал.</span>{error && <span className="inline-error">{error}</span>}</div>}
     </section>
-    {showInfo && <aside className="info-panel"><header><strong>Аккаунт и чат</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current?.color || "#477da8" }}>{(current?.name || user.displayName).slice(0,1)}</div><h2>{current?.name || user.displayName}</h2><p className="muted">@{user.username}</p><div className="info-actions"><button type="button" title="Настройки уведомлений появятся позже"><Bell size={16}/> Уведомления · скоро</button><button type="button" title="Архивирование чатов ещё не реализовано"><Archive size={16}/> Архив · скоро</button><button type="button" title="Политика безопасности сервера"><ShieldCheck size={16}/> Безопасность</button><button type="button" onClick={() => { setShowInfo(false); setError("Для помощи обратитесь к администратору сервера."); }}><CircleHelp size={16}/> Помощь</button></div><div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
+    {showInfo && <aside className="info-panel"><header><strong>Аккаунт и чат</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current?.color || "#477da8" }}>{(current?.name || user.displayName).slice(0,1)}</div><h2>{current?.name || user.displayName}</h2><p className="muted">@{user.username}</p>{current && current.kind !== "direct" ? <div className="group-management">
+      <div className="group-section-title"><Users size={15}/> Участники · {groupMembers.length}</div>
+      {groupMembers.map(member => <div className="group-member" key={member.userId}>
+        <span className="result-avatar">{member.displayName.slice(0,1).toUpperCase()}</span>
+        <div className="group-member-copy"><strong>{member.displayName}</strong><small>@{member.username} · {member.role === "owner" ? "Владелец" : member.role === "admin" ? "Администратор" : "Участник"}</small>
+        {groupSettings?.currentRole === "owner" && member.role !== "owner" && <select aria-label={`Роль @${member.username}`} value={member.role} onChange={e => void changeMemberRole(member, e.target.value as "admin" | "member")}><option value="member">Участник</option><option value="admin">Администратор</option></select>}</div>
+        {groupSettings?.currentRole === "owner" && member.userId !== user.id && <button className="mini-icon" title="Передать владение" aria-label={`Передать владение ${member.displayName}`} onClick={() => void transferGroupOwnership(member)}><ArrowRightLeft size={15}/></button>}
+      </div>)}
+      {groupSettings && <div className="group-visibility"><div><Globe size={15}/><span><strong>{groupSettings.isPublic ? "Публичная" : "Приватная"}</strong><small>{groupSettings.isPublic ? "Видна в списке публичных групп" : "Вступление по приглашению"}</small></span></div><button disabled={groupSettings.currentRole !== "owner"} onClick={() => void changeGroupVisibility(!groupSettings.isPublic)}>{groupSettings.isPublic ? "Сделать приватной" : "Сделать публичной"}</button></div>}
+      {groupSettings?.currentRole === "owner" && <button className="invite-button" onClick={() => void createGroupInvite()}><Copy size={15}/> Создать / обновить код приглашения</button>}
+      {inviteCode && <div className="invite-code"><small>Код приглашения (скопирован, если браузер разрешил)</small><code>{inviteCode}</code><button onClick={() => void navigator.clipboard?.writeText(inviteCode).catch(() => undefined)}><Copy size={13}/> Копировать ещё раз</button></div>}
+    </div> : <div className="info-actions"><button type="button" title="Настройки уведомлений появятся позже"><Bell size={16}/> Уведомления · скоро</button><button type="button" title="Архивирование чатов ещё не реализовано"><Archive size={16}/> Архив · скоро</button><button type="button" title="Политика безопасности сервера"><ShieldCheck size={16}/> Безопасность</button><button type="button" onClick={() => { setShowInfo(false); setError("Для помощи обратитесь к администратору сервера."); }}><CircleHelp size={16}/> Помощь</button></div>}<div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
     {showUserSearch && <div className="modal-backdrop" onClick={() => setShowUserSearch(false)}><section className="create-modal" onClick={e => e.stopPropagation()}><h2>Новый личный чат</h2><p>Найдите пользователя по имени или имени пользователя.</p><form className="user-search-form" onSubmit={e => void findUsers(e)}><input autoFocus value={userQuery} onChange={e => setUserQuery(e.target.value)} maxLength={50} placeholder="Введите имя или username"/><button className="auth-submit" type="submit" disabled={busy || userQuery.trim().length < 2}>{busy ? "Поиск…" : "Найти"}</button></form>{error && <div className="inline-error">{error}</div>}<div className="user-results">{userResults.map(result => <button key={result.id} onClick={() => void startDirectChat(result)} disabled={busy}><span className="result-avatar">{result.displayName.slice(0,1).toUpperCase()}</span><span><strong>{result.displayName}</strong><small>@{result.username}</small></span><MessageCircle size={17}/></button>)}{userResults.length === 0 && <span className="results-hint">Введите поисковый запрос, чтобы найти людей.</span>}</div><div className="modal-actions"><button type="button" onClick={() => setShowUserSearch(false)}>Закрыть</button></div></section></div>}
+    {showJoinInvite && <div className="modal-backdrop" onClick={() => setShowJoinInvite(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void joinByInvite(e)}><h2>Вступить в группу или канал</h2><p>Вставьте код приглашения, который вам отправил владелец.</p><label>Код приглашения<input autoFocus value={joinCode} onChange={e => setJoinCode(e.target.value)} maxLength={64} required placeholder="Вставьте код приглашения"/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowJoinInvite(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !joinCode.trim()}>{busy ? "Подключение…" : "Вступить"}</button></div></form></div>}
     {showCreate && <div className="modal-backdrop" onClick={() => setShowCreate(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void createConversation(e)}><h2>{newKind === "group" ? "Создать группу" : "Создать канал"}</h2><p>{newKind === "group" ? "Создайте пространство для общения." : "Создайте канал для публикаций."}</p><label>Название<input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} maxLength={120} required placeholder={newKind === "group" ? "Название группы" : "Название канала"}/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowCreate(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !newTitle.trim()}>{busy ? "Создание…" : "Создать"}</button></div></form></div>}
   </main>;
 }
