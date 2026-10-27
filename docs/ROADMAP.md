@@ -26,9 +26,9 @@
 ## Groups and channels
 - [x] Create groups and channels
 - [x] Owner/admin role assignment and ownership transfer API and web controls
-- [x] Public/private visibility, public group discovery and rotating invite links API
+- [x] Public/private visibility, public group discovery and rotating invite links API and web UI
 - [x] Member list API with owner/admin roles and web management panel
-- [x] Shareable invite URLs and joining groups from invite links in the web client
+- [x] Shareable invite URLs, join-by-link, and public group/channel discovery in the web client
 - [ ] Moderation, reporting and muting
 - [ ] Channel publishing and subscriber delivery
 
