@@ -43,6 +43,7 @@ func (s *server) routes() http.Handler {
  mux.Handle("GET /api/v1/ws",s.requireAuth(http.HandlerFunc(s.websocket)))
  mux.Handle("POST /api/v1/conversations",s.requireAuth(http.HandlerFunc(s.createConversation)))
  mux.Handle("GET /api/v1/conversations/public",s.requireAuth(http.HandlerFunc(s.listPublicConversations)))
+ mux.Handle("GET /api/v1/conversations/{id}/settings",s.requireAuth(http.HandlerFunc(s.getConversationSettings)))
  mux.Handle("GET /api/v1/conversations/{id}/members",s.requireAuth(http.HandlerFunc(s.listConversationMembers)))
  mux.Handle("PATCH /api/v1/conversations/{id}/members/{memberID}",s.requireAuth(http.HandlerFunc(s.updateMemberRole)))
  mux.Handle("POST /api/v1/conversations/{id}/transfer-owner",s.requireAuth(http.HandlerFunc(s.transferOwnership)))
