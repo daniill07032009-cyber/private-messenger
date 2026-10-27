@@ -20,7 +20,8 @@
 - [x] Authenticated WebSocket delivery for the web client with reconnect and REST fallback
 - [ ] Delivery acknowledgements and read receipts
 - [ ] Read receipts, edits, deletes, replies, forwards and reactions
-- [ ] Pagination, drafts, pins, message search and attachment uploads
+- [x] Basic in-chat message search in web and Android clients
+- [ ] Pagination, drafts, pins and attachment uploads
 
 ## Groups and channels
 - [x] Create groups and channels
