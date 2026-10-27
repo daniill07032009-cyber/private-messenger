@@ -69,6 +69,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val Background = Color(0xFF0E1621)
 private val Panel = Color(0xFF17212B)
@@ -249,8 +250,8 @@ private fun MessengerApp() {
     }
     DisposableEffect(account?.id, active?.id, socketRetry) {
         val chatId = active?.id
-        var disposed = false
-        var reconnectScheduled = false
+        val disposed = AtomicBoolean(false)
+        val reconnectScheduled = AtomicBoolean(false)
         val socket = if (account != null && chatId != null) {
             MessengerApi.connectMessages(
                 chatId,
@@ -260,18 +261,17 @@ private fun MessengerApp() {
                     }
                 },
                 onDisconnected = {
-                    if (!disposed && !reconnectScheduled) {
-                        reconnectScheduled = true
+                    if (!disposed.get() && reconnectScheduled.compareAndSet(false, true)) {
                         scope.launch {
                             delay(2000)
-                            if (!disposed) socketRetry += 1
+                            if (!disposed.get()) socketRetry += 1
                         }
                     }
                 }
             )
         } else null
         onDispose {
-            disposed = true
+            disposed.set(true)
             socket?.close(1000, "conversation changed")
         }
     }
