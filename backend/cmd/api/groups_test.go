@@ -149,6 +149,35 @@ func TestGroupRolesVisibilityAndInvitesIntegration(t *testing.T) {
 		t.Fatalf("expected public join to add third member, got %#v", joinedMembers)
 	}
 
+	createdChannel := performJSONRequest(t, h, ownerCookie, http.MethodPost, "/api/v1/conversations", map[string]string{"kind": "channel", "title": "Admin Only Channel"})
+	if createdChannel.Code != http.StatusCreated {
+		t.Fatalf("create channel: got %d: %s", createdChannel.Code, createdChannel.Body.String())
+	}
+	var channel conversation
+	if err := json.Unmarshal(createdChannel.Body.Bytes(), &channel); err != nil {
+		t.Fatalf("decode channel: %v", err)
+	}
+	channelInviteResponse := performJSONRequest(t, h, ownerCookie, http.MethodPost, "/api/v1/conversations/"+channel.ID+"/invite", map[string]string{})
+	if channelInviteResponse.Code != http.StatusCreated {
+		t.Fatalf("create channel invite: got %d: %s", channelInviteResponse.Code, channelInviteResponse.Body.String())
+	}
+	var channelInvite struct { Code string `json:"code"` }
+	if err := json.Unmarshal(channelInviteResponse.Body.Bytes(), &channelInvite); err != nil {
+		t.Fatalf("decode channel invite: %v", err)
+	}
+	channelJoin := performJSONRequest(t, h, memberCookie, http.MethodPost, "/api/v1/invites/"+channelInvite.Code+"/join", map[string]string{})
+	if channelJoin.Code != http.StatusOK {
+		t.Fatalf("join channel: got %d: %s", channelJoin.Code, channelJoin.Body.String())
+	}
+	memberPost := performJSONRequest(t, h, memberCookie, http.MethodPost, "/api/v1/conversations/"+channel.ID+"/messages", map[string]string{"body": "member post should be denied"})
+	if memberPost.Code != http.StatusForbidden {
+		t.Fatalf("channel member should not publish: got %d: %s", memberPost.Code, memberPost.Body.String())
+	}
+	ownerPost := performJSONRequest(t, h, ownerCookie, http.MethodPost, "/api/v1/conversations/"+channel.ID+"/messages", map[string]string{"body": "owner post should be allowed"})
+	if ownerPost.Code != http.StatusCreated {
+		t.Fatalf("channel owner should publish: got %d: %s", ownerPost.Code, ownerPost.Body.String())
+	}
+
 }
 
 func performJSONRequest(t *testing.T, h http.Handler, cookie *http.Cookie, method, path string, payload any) *httptest.ResponseRecorder {
