@@ -25,9 +25,10 @@
 
 ## Groups and channels
 - [x] Create groups and channels
-- [ ] Owner/admin permissions and ownership transfer
-- [ ] Public/private visibility and invite links
-- [ ] Moderation, reporting, muting and member management
+- [x] Owner/admin role assignment and ownership transfer API
+- [x] Public/private visibility, public group discovery and rotating invite links API
+- [x] Member list API with owner/admin roles
+- [ ] Moderation, reporting, muting and client-side member management
 - [ ] Channel publishing and subscriber delivery
 
 ## Android
