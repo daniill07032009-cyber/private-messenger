@@ -26,6 +26,7 @@ export const api={
  createInvite:(id:string)=>request<{code:string}>(`/api/v1/conversations/${encodeURIComponent(id)}/invite`,{method:"POST",body:JSON.stringify({})}),
  joinInvite:(code:string)=>request<ApiConversation>(`/api/v1/invites/${encodeURIComponent(code)}/join`,{method:"POST",body:JSON.stringify({})}),
  publicConversations:()=>request<ApiPublicConversation[]>("/api/v1/conversations/public"),
+ joinPublicConversation:(id:string)=>request<ApiConversation>(`/api/v1/conversations/${encodeURIComponent(id)}/join-public`,{method:"POST",body:JSON.stringify({})}),
  messages:(id:string)=>request<ApiMessage[]>(`/api/v1/conversations/${encodeURIComponent(id)}/messages`),
  sendMessage:(id:string,body:string)=>request<ApiMessage>(`/api/v1/conversations/${encodeURIComponent(id)}/messages`,{method:"POST",body:JSON.stringify({body})}),
 };
