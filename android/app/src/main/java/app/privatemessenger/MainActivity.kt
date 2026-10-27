@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +63,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -150,6 +153,23 @@ private object MessengerApi {
         val c = JSONObject(request("api/v1/conversations/direct", "POST", JSONObject().put("username", username)))
         return ChatItem(c.getString("id"), c.optString("title").ifBlank { username }, c.getString("kind"), c.optString("createdAt"))
     }
+    fun connectMessages(chatId: String, onMessage: (MessageItem) -> Unit): WebSocket {
+        val wsUrl = baseUrl.replaceFirst("http", "ws") + "api/v1/ws?conversationId=" +
+            java.net.URLEncoder.encode(chatId, "UTF-8")
+        val request = Request.Builder().url(wsUrl).build()
+        return client.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                try {
+                    val event = JSONObject(text)
+                    if (event.optString("type") != "message") return
+                    val m = event.getJSONObject("message")
+                    onMessage(MessageItem(m.getString("id"), m.getString("senderId"), m.getString("body"), m.getString("createdAt")))
+                } catch (_: Exception) {
+                    // Ignore malformed events; REST history refresh remains available as a fallback.
+                }
+            }
+        })
+    }
     suspend fun create(kind: String, title: String): ChatItem {
         val c = JSONObject(request("api/v1/conversations", "POST", JSONObject().put("kind", kind).put("title", title)))
         return ChatItem(c.getString("id"), c.optString("title", title), c.getString("kind"), c.optString("createdAt"))
@@ -201,13 +221,26 @@ private fun MessengerApp() {
     LaunchedEffect(Unit) {
         try { account = MessengerApi.me(); refreshChats() } catch (_: Exception) { /* show sign-in when no valid session exists */ }
     }
+    DisposableEffect(account?.id, active?.id) {
+        val chatId = active?.id
+        val socket = if (account != null && chatId != null) {
+            MessengerApi.connectMessages(chatId) { incoming ->
+                scope.launch {
+                    messages = (messages + incoming).distinctBy { it.id }.sortedBy { it.createdAt }
+                }
+            }
+        } else null
+        onDispose { socket?.close(1000, "conversation changed") }
+    }
     LaunchedEffect(account?.id, active?.id) {
         val chatId = active?.id
         if (account != null && chatId != null) {
             while (true) {
-                delay(4000)
-                try { messages = MessengerApi.messages(chatId) }
-                catch (_: Exception) { /* keep the last history during a temporary network interruption */ }
+                delay(15000)
+                try {
+                    val latest = MessengerApi.messages(chatId)
+                    messages = (messages + latest).distinctBy { it.id }.sortedBy { it.createdAt }
+                } catch (_: Exception) { /* keep last history during network interruption */ }
             }
         }
     }
