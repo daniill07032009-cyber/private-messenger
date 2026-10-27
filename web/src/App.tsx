@@ -47,20 +47,50 @@ export default function App() {
     api.me().then(async found => { setUser(found); await refreshChats(); }).catch(() => undefined);
   }, []);
 
-  // Refresh the active conversation so messages sent from another device appear without reopening it.
+  // WebSocket delivers new messages immediately; periodic REST refresh is the reconnect fallback.
   useEffect(() => {
     if (!user || !active) return;
     let disposed = false;
+    let reconnectTimer: number | undefined;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    let socket: WebSocket | undefined;
+    const connect = () => {
+      if (disposed) return;
+      socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/ws?conversationId=${encodeURIComponent(active)}`);
+      socket.onmessage = event => {
+        try {
+          const incoming = JSON.parse(String(event.data)) as { type: string; message: ApiMessage };
+          if (incoming.type !== "message" || incoming.message.conversationId !== active) return;
+          const message = incoming.message;
+          setMessages(previous => previous.some(item => item.id === message.id) ? previous : [...previous, message]);
+          setChats(previous => {
+            const updated = previous.map(chat => chat.id === active ? { ...chat, preview: message.body, time: timeLabel(message.createdAt) } : chat);
+            return [...updated.filter(chat => chat.id === active), ...updated.filter(chat => chat.id !== active)];
+          });
+        } catch { /* ignore malformed events and keep the REST fallback available */ }
+      };
+      socket.onclose = () => {
+        if (!disposed) reconnectTimer = window.setTimeout(connect, 2000);
+      };
+      socket.onerror = () => socket?.close();
+    };
+    connect();
     const syncMessages = async () => {
       try {
         const latest = await api.messages(active);
-        if (!disposed) setMessages(latest);
-      } catch {
-        // A transient network failure should not interrupt typing or sign the user out.
-      }
+        if (!disposed) setMessages(previous => {
+          const ids = new Set(previous.map(item => item.id));
+          return [...previous, ...latest.filter(item => !ids.has(item.id))].sort((a,b) => a.createdAt.localeCompare(b.createdAt));
+        });
+      } catch { /* a temporary network failure should not interrupt typing */ }
     };
-    const interval = window.setInterval(() => { void syncMessages(); }, 4000);
-    return () => { disposed = true; window.clearInterval(interval); };
+    const interval = window.setInterval(() => { void syncMessages(); }, 15000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
   }, [user, active]);
 
   async function submitAuth(event: FormEvent) {

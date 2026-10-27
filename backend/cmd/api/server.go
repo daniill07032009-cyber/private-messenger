@@ -18,7 +18,7 @@ import (
  "golang.org/x/crypto/bcrypt"
 )
 
-type server struct { db *pgxpool.Pool; webOrigin string }
+type server struct { db *pgxpool.Pool; webOrigin string; hub *realtimeHub }
 type ctxKey string
 const userIDKey ctxKey = "userID"
 type user struct { ID string `json:"id"`; Username string `json:"username"`; DisplayName string `json:"displayName"`; CreatedAt time.Time `json:"createdAt"` }
@@ -40,6 +40,7 @@ func (s *server) routes() http.Handler {
  mux.Handle("GET /api/v1/users/search",s.requireAuth(http.HandlerFunc(s.searchUsers)))
  mux.Handle("POST /api/v1/conversations/direct",s.requireAuth(http.HandlerFunc(s.createDirectConversation)))
  mux.Handle("GET /api/v1/conversations",s.requireAuth(http.HandlerFunc(s.listConversations)))
+ mux.Handle("GET /api/v1/ws",s.requireAuth(http.HandlerFunc(s.websocket)))
  mux.Handle("POST /api/v1/conversations",s.requireAuth(http.HandlerFunc(s.createConversation)))
  mux.Handle("GET /api/v1/conversations/{id}/messages",s.requireAuth(http.HandlerFunc(s.listMessages)))
  mux.Handle("POST /api/v1/conversations/{id}/messages",s.requireAuth(http.HandlerFunc(s.sendMessage)))
@@ -89,7 +90,7 @@ func(s *server)sendMessage(w http.ResponseWriter,r *http.Request){
  var in sendMessageRequest;if !decodeJSON(w,r,&in){return};in.Body=strings.TrimSpace(in.Body);if in.Body==""||len([]rune(in.Body))>4000{writeError(w,400,"message must contain 1-4000 characters");return}
  uid,cid:=r.Context().Value(userIDKey).(string),r.PathValue("id");if !s.isMember(r.Context(),cid,uid){writeError(w,404,"conversation not found");return}
  var m message;err:=s.db.QueryRow(r.Context(),`INSERT INTO messages(id,conversation_id,sender_id,body) VALUES(gen_random_uuid(),$1,$2,$3) RETURNING id::text,conversation_id::text,sender_id::text,body,created_at`,cid,uid,in.Body).Scan(&m.ID,&m.ConversationID,&m.SenderID,&m.Body,&m.CreatedAt)
- if err!=nil{writeError(w,500,"could not save message");return};writeJSON(w,201,m)
+ if err!=nil{writeError(w,500,"could not save message");return};if s.hub!=nil{s.hub.broadcast(cid,m)};writeJSON(w,201,m)
 }
 func(s *server)isMember(ctx context.Context,cid,uid string)bool{var ok bool;err:=s.db.QueryRow(ctx,`SELECT EXISTS(SELECT 1 FROM conversation_members WHERE conversation_id=$1 AND user_id=$2)`,cid,uid).Scan(&ok);return err==nil&&ok}
 func(s *server)requireAuth(next http.Handler)http.Handler{return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
