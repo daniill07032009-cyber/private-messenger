@@ -23,6 +23,9 @@ export default function App() {
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"group" | "channel">("group");
   const [showCreate, setShowCreate] = useState(false);
+  const [showUserSearch, setShowUserSearch] = useState(false);
+  const [userQuery, setUserQuery] = useState("");
+  const [userResults, setUserResults] = useState<ApiUser[]>([]);
   const [showInfo, setShowInfo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -88,6 +91,25 @@ export default function App() {
     finally { setBusy(false); }
   }
 
+  async function findUsers(event: FormEvent) {
+    event.preventDefault();
+    if (userQuery.trim().length < 2) { setError("Введите минимум 2 символа для поиска"); return; }
+    setBusy(true); setError("");
+    try { setUserResults(await api.searchUsers(userQuery.trim())); }
+    catch (e) { setError(e instanceof Error ? e.message : "Не удалось найти пользователей"); }
+    finally { setBusy(false); }
+  }
+
+  async function startDirectChat(target: ApiUser) {
+    setBusy(true); setError("");
+    try {
+      const created = await api.createDirectConversation(target.username);
+      setShowUserSearch(false); setUserQuery(""); setUserResults([]);
+      await refreshChats(created.id);
+    } catch (e) { setError(e instanceof Error ? e.message : "Не удалось открыть личный чат"); }
+    finally { setBusy(false); }
+  }
+
   async function signOut() {
     try { await api.logout(); } catch { /* clear the local view even if the session has expired */ }
     setUser(null); setChats([]); setMessages([]); setActive(""); setError("");
@@ -118,7 +140,7 @@ export default function App() {
       </button>)}
       {filtered.length === 0 && <div className="list-empty">{search ? "Ничего не найдено" : "Пока нет чатов. Создайте группу или канал."}</div>}</div>
       <div className="compose-wrap"><button className="compose" aria-label="Создать группу или канал" title="Создать группу или канал" onClick={() => setNewChatMenu(v => !v)}><Plus size={23}/></button>
-      {newChatMenu && <div className="compose-menu"><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button></div>}</div>
+      {newChatMenu && <div className="compose-menu"><button onClick={() => { setShowUserSearch(true); setNewChatMenu(false); setError(""); }}><MessageCircle size={16}/> Личный чат</button><button onClick={() => { setNewKind("group"); setShowCreate(true); setNewChatMenu(false); }}> <Users size={16}/> Создать группу</button><button onClick={() => { setNewKind("channel"); setShowCreate(true); setNewChatMenu(false); }}><Hash size={16}/> Создать канал</button></div>}</div>
       <footer className="sidebar-footer"><span className="online-dot"/> {user.username} <button className="logout-button" onClick={() => void signOut()} title="Выйти" aria-label="Выйти"><LogOut size={15}/></button></footer>
     </aside>
     <section className="conversation">
@@ -130,6 +152,7 @@ export default function App() {
       </> : <div className="empty-state"><MessageCircle size={35}/><strong>Ваши чаты</strong><span>Выберите чат или создайте группу либо канал.</span>{error && <span className="inline-error">{error}</span>}</div>}
     </section>
     {showInfo && <aside className="info-panel"><header><strong>Аккаунт и чат</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current?.color || "#477da8" }}>{(current?.name || user.displayName).slice(0,1)}</div><h2>{current?.name || user.displayName}</h2><p className="muted">@{user.username}</p><div className="info-actions"><button><Bell size={16}/> Уведомления</button><button><Archive size={16}/> Архивировать (позже)</button><button><ShieldCheck size={16}/> Конфиденциальность</button><button><CircleHelp size={16}/> Помощь</button></div><div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
+    {showUserSearch && <div className="modal-backdrop" onClick={() => setShowUserSearch(false)}><section className="create-modal" onClick={e => e.stopPropagation()}><h2>Новый личный чат</h2><p>Найдите пользователя по имени или имени пользователя.</p><form className="user-search-form" onSubmit={e => void findUsers(e)}><input autoFocus value={userQuery} onChange={e => setUserQuery(e.target.value)} maxLength={50} placeholder="Введите имя или username"/><button className="auth-submit" type="submit" disabled={busy || userQuery.trim().length < 2}>{busy ? "Поиск…" : "Найти"}</button></form>{error && <div className="inline-error">{error}</div>}<div className="user-results">{userResults.map(result => <button key={result.id} onClick={() => void startDirectChat(result)} disabled={busy}><span className="result-avatar">{result.displayName.slice(0,1).toUpperCase()}</span><span><strong>{result.displayName}</strong><small>@{result.username}</small></span><MessageCircle size={17}/></button>)}{userResults.length === 0 && <span className="results-hint">Введите поисковый запрос, чтобы найти людей.</span>}</div><div className="modal-actions"><button type="button" onClick={() => setShowUserSearch(false)}>Закрыть</button></div></section></div>}
     {showCreate && <div className="modal-backdrop" onClick={() => setShowCreate(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void createConversation(e)}><h2>{newKind === "group" ? "Создать группу" : "Создать канал"}</h2><p>{newKind === "group" ? "Создайте пространство для общения." : "Создайте канал для публикаций."}</p><label>Название<input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} maxLength={120} required placeholder={newKind === "group" ? "Название группы" : "Название канала"}/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowCreate(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !newTitle.trim()}>{busy ? "Создание…" : "Создать"}</button></div></form></div>}
   </main>;
 }

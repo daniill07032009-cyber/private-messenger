@@ -37,6 +37,8 @@ func (s *server) routes() http.Handler {
  mux.HandleFunc("POST /api/v1/auth/login",s.login)
  mux.Handle("POST /api/v1/auth/logout",s.requireAuth(http.HandlerFunc(s.logout)))
  mux.Handle("GET /api/v1/auth/me",s.requireAuth(http.HandlerFunc(s.me)))
+ mux.Handle("GET /api/v1/users/search",s.requireAuth(http.HandlerFunc(s.searchUsers)))
+ mux.Handle("POST /api/v1/conversations/direct",s.requireAuth(http.HandlerFunc(s.createDirectConversation)))
  mux.Handle("GET /api/v1/conversations",s.requireAuth(http.HandlerFunc(s.listConversations)))
  mux.Handle("POST /api/v1/conversations",s.requireAuth(http.HandlerFunc(s.createConversation)))
  mux.Handle("GET /api/v1/conversations/{id}/messages",s.requireAuth(http.HandlerFunc(s.listMessages)))

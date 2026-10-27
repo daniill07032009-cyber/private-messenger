@@ -8,6 +8,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 export const api={
  me:()=>request<ApiUser>("/api/v1/auth/me"),
+ searchUsers:(q:string)=>request<ApiUser[]>(`/api/v1/users/search?q=${encodeURIComponent(q)}`),
+ createDirectConversation:(username:string)=>request<ApiConversation>("/api/v1/conversations/direct",{method:"POST",body:JSON.stringify({username})}),
  register:(username:string,displayName:string,password:string)=>request<ApiUser>("/api/v1/auth/register",{method:"POST",body:JSON.stringify({username,displayName,password})}),
  login:(username:string,password:string)=>request<ApiUser>("/api/v1/auth/login",{method:"POST",body:JSON.stringify({username,password})}),
  logout:()=>request<void>("/api/v1/auth/logout",{method:"POST"}),
