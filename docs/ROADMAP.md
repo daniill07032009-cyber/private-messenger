@@ -15,6 +15,8 @@
 - [x] Direct messages and user discovery
 - [x] Native Android client connected to shared API
 - [x] CI build for Android debug APK
+- [x] Android WebSocket message subscription with REST fallback
+- [ ] Automatic Android WebSocket reconnect
 - [x] Authenticated WebSocket delivery for the web client with reconnect and REST fallback
 - [ ] Delivery acknowledgements and read receipts
 - [ ] Read receipts, edits, deletes, replies, forwards and reactions
