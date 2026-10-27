@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: skyline-messenger-api
+    runtime: docker
+    repo: https://github.com/daniill07032009-cyber/private-messenger
+    branch: main
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
