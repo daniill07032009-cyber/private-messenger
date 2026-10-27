@@ -30,7 +30,8 @@
 - [x] Member list API with owner/admin roles and web management panel
 - [x] Shareable invite URLs, join-by-link, and public group/channel discovery in the web client
 - [ ] Moderation, reporting and muting
-- [ ] Channel publishing and subscriber delivery
+- [x] Channel publishing restricted to owners and admins
+- [ ] Subscriber delivery and channel-specific notifications
 
 ## Android
 - [x] Login, registration, conversation list and persisted messages
