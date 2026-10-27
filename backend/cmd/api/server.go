@@ -113,7 +113,7 @@ func(s *server)startSession(w http.ResponseWriter,r *http.Request,uid string)err
 func(s *server)getUser(ctx context.Context,id string)(user,error){var u user;err:=s.db.QueryRow(ctx,`SELECT id::text,username,display_name,created_at FROM users WHERE id=$1`,id).Scan(&u.ID,&u.Username,&u.DisplayName,&u.CreatedAt);return u,err}
 func(s *server)cors(next http.Handler)http.Handler{return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
  origin:=r.Header.Get("Origin");if s.webOrigin!=""&&origin==s.webOrigin{w.Header().Set("Access-Control-Allow-Origin",origin);w.Header().Set("Access-Control-Allow-Credentials","true");w.Header().Add("Vary","Origin")}
- if r.Method==http.MethodOptions{w.Header().Set("Access-Control-Allow-Methods","GET, POST, OPTIONS");w.Header().Set("Access-Control-Allow-Headers","Content-Type");w.WriteHeader(204);return};next.ServeHTTP(w,r)
+ if r.Method==http.MethodOptions{w.Header().Set("Access-Control-Allow-Methods","GET, POST, PATCH, OPTIONS");w.Header().Set("Access-Control-Allow-Headers","Content-Type");w.WriteHeader(204);return};next.ServeHTTP(w,r)
 })}
 func decodeJSON(w http.ResponseWriter,r *http.Request,dst any)bool{r.Body=http.MaxBytesReader(w,r.Body,1<<20);dec:=json.NewDecoder(r.Body);dec.DisallowUnknownFields();if err:=dec.Decode(dst);err!=nil{writeError(w,400,"invalid JSON request");return false};var extra any;if err:=dec.Decode(&extra);!errors.Is(err,io.EOF){writeError(w,400,"request must contain one JSON object");return false};return true}
 func writeJSON(w http.ResponseWriter,status int,v any){w.Header().Set("Content-Type","application/json; charset=utf-8");w.WriteHeader(status);_=json.NewEncoder(w).Encode(v)}
