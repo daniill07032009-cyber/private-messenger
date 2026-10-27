@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Archive, Bell, Check, CircleHelp, Hash, LockKeyhole, LogOut, MessageCircle, MoreHorizontal, Paperclip, Plus, Search, Send, Settings, ShieldCheck, Smile, Users } from "lucide-react";
 import { api, ApiConversation, ApiMessage, ApiUser } from "./api";
 
@@ -17,7 +17,7 @@ export default function App() {
   const [active, setActive] = useState("");
   const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "group" | "channel">("all");
+  const [filter, setFilter] = useState<"all" | "direct" | "group" | "channel">("all");
   const [draft, setDraft] = useState("");
   const [newChatMenu, setNewChatMenu] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -31,7 +31,16 @@ export default function App() {
   const [error, setError] = useState("");
 
   const current = chats.find(c => c.id === active);
-  const filtered = useMemo(() => chats.filter(c => (filter === "all" || c.kind === filter) && (c.name.toLowerCase().includes(search.toLowerCase()) || c.preview.toLowerCase().includes(search.toLowerCase()))), [chats, filter, search]);
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return chats.filter(c => (filter === "all" || c.kind === filter) &&
+      (!query || c.name.toLocaleLowerCase().includes(query) || c.preview.toLocaleLowerCase().includes(query)));
+  }, [chats, filter, search]);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
 
   async function refreshChats(preferredId?: string) {
     const result = await api.conversations();
@@ -116,7 +125,7 @@ export default function App() {
     setBusy(true); setError("");
     try {
       const sent = await api.sendMessage(active, value);
-      setMessages(prev => [...prev, sent]);
+      setMessages(prev => prev.some(message => message.id === sent.id) ? prev : [...prev, sent].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
       setChats(prev => {
         const updated = prev.map(c => c.id === active ? { ...c, preview: value, time: timeLabel(sent.createdAt) } : c);
         return [...updated.filter(c => c.id === active), ...updated.filter(c => c.id !== active)];
@@ -179,7 +188,7 @@ export default function App() {
   return <main className="app-shell">
     <aside className="sidebar">
       <header className="side-header"><div className="profile-mark">{user.displayName.slice(0,1).toUpperCase()}</div><div className="search-box"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск чатов"/></div><button className="icon-button" aria-label="Настройки" onClick={() => setShowInfo(v => !v)}><Settings/></button></header>
-      <nav className="filter-row"><button className={filter === "all" ? "filter active" : "filter"} onClick={() => setFilter("all")}><MessageCircle size={15}/> Все</button><button className={filter === "group" ? "filter active" : "filter"} onClick={() => setFilter("group")}><Users size={15}/> Группы</button><button className={filter === "channel" ? "filter active" : "filter"} onClick={() => setFilter("channel")}><Hash size={15}/> Каналы</button></nav>
+      <nav className="filter-row" aria-label="Фильтр чатов"><button className={filter === "all" ? "filter active" : "filter"} onClick={() => setFilter("all")}><MessageCircle size={15}/> Все</button><button className={filter === "direct" ? "filter active" : "filter"} onClick={() => setFilter("direct")}><MessageCircle size={15}/> Личные</button><button className={filter === "group" ? "filter active" : "filter"} onClick={() => setFilter("group")}><Users size={15}/> Группы</button><button className={filter === "channel" ? "filter active" : "filter"} onClick={() => setFilter("channel")}><Hash size={15}/> Каналы</button></nav>
       <div className="chat-list">{filtered.map(chat => <button key={chat.id} className={"chat-item " + (active === chat.id ? "selected" : "")} onClick={() => void selectChat(chat.id)}>
         <span className="avatar" style={{ background: chat.color }}>{chat.kind === "group" ? <Users/> : chat.kind === "channel" ? <Hash/> : chat.name.slice(0,1)}</span>
         <span className="chat-copy"><span className="chat-top"><strong>{chat.name}</strong><time>{chat.time}</time></span><span className="chat-bottom"><span>{chat.preview}</span></span></span>
@@ -192,12 +201,12 @@ export default function App() {
     <section className="conversation">
       {current ? <>
         <header className="conversation-header"><span className="avatar small" style={{ background: current.color }}>{current.kind === "group" ? <Users/> : current.kind === "channel" ? <Hash/> : current.name.slice(0,1)}</span><div className="conversation-title"><strong>{current.name}</strong><span>{current.kind === "channel" ? "Канал" : current.kind === "group" ? "Группа" : "Личная переписка"} · серверная переписка</span></div><div className="header-actions"><button className="icon-button" aria-label="Уведомления"><Bell/></button><button className="icon-button" aria-label="Информация о чате" onClick={() => setShowInfo(!showInfo)}><MoreHorizontal/></button></div></header>
-        <div className="message-area"><div className="date-pill">История сообщений</div>{messages.map(m => <div className={"message-row " + (m.senderId === user.id ? "own" : "")} key={m.id}><div className="message-bubble">{m.body}<span className="message-meta">{timeLabel(m.createdAt)} {m.senderId === user.id && <Check size={13}/>}</span></div></div>)}{messages.length === 0 && <div className="welcome"><span className="welcome-icon"><MessageCircle/></span><strong>Начните переписку</strong><span>Сообщения будут сохранены на сервере. Чтобы начать общение с другим человеком, следующим этапом добавим поиск пользователей и личные чаты.</span></div>}</div>
+        <div className="message-area" aria-live="polite"><div className="date-pill">История сообщений</div>{messages.map(m => <div className={"message-row " + (m.senderId === user.id ? "own" : "")} key={m.id}><div className="message-bubble">{m.body}<span className="message-meta">{timeLabel(m.createdAt)} {m.senderId === user.id && <Check size={13}/>}</span></div></div> )}{messages.length === 0 && <div className="welcome"><span className="welcome-icon"><MessageCircle/></span><strong>Начните переписку</strong><span>Отправьте первое сообщение — история сохранится на вашем сервере.</span></div>}<div ref={messageEndRef} /></div>
         {error && <div className="chat-error" role="alert">{error}</div>}
         <form className="composer" onSubmit={e => { e.preventDefault(); void sendMessage(); }}><button type="button" className="icon-button" aria-label="Прикрепить файл" title="Файлы появятся в следующем этапе"><Paperclip/></button><input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Написать сообщение…" aria-label="Сообщение" maxLength={4000}/><button type="button" className="icon-button" aria-label="Эмодзи" title="Эмодзи появятся в следующем этапе"><Smile/></button><button type="submit" className="send-button" aria-label="Отправить" disabled={busy || !draft.trim()}><Send size={19}/></button></form>
       </> : <div className="empty-state"><MessageCircle size={35}/><strong>Ваши чаты</strong><span>Выберите чат или создайте группу либо канал.</span>{error && <span className="inline-error">{error}</span>}</div>}
     </section>
-    {showInfo && <aside className="info-panel"><header><strong>Аккаунт и чат</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current?.color || "#477da8" }}>{(current?.name || user.displayName).slice(0,1)}</div><h2>{current?.name || user.displayName}</h2><p className="muted">@{user.username}</p><div className="info-actions"><button><Bell size={16}/> Уведомления</button><button><Archive size={16}/> Архивировать (позже)</button><button><ShieldCheck size={16}/> Конфиденциальность</button><button><CircleHelp size={16}/> Помощь</button></div><div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
+    {showInfo && <aside className="info-panel"><header><strong>Аккаунт и чат</strong><button className="icon-button" onClick={() => setShowInfo(false)} aria-label="Закрыть">×</button></header><div className="info-avatar" style={{ background: current?.color || "#477da8" }}>{(current?.name || user.displayName).slice(0,1)}</div><h2>{current?.name || user.displayName}</h2><p className="muted">@{user.username}</p><div className="info-actions"><button type="button" title="Настройки уведомлений появятся позже"><Bell size={16}/> Уведомления · скоро</button><button type="button" title="Архивирование чатов ещё не реализовано"><Archive size={16}/> Архив · скоро</button><button type="button" title="Политика безопасности сервера"><ShieldCheck size={16}/> Безопасность</button><button type="button" onClick={() => { setShowInfo(false); setError("Для помощи обратитесь к администратору сервера."); }}><CircleHelp size={16}/> Помощь</button></div><div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
     {showUserSearch && <div className="modal-backdrop" onClick={() => setShowUserSearch(false)}><section className="create-modal" onClick={e => e.stopPropagation()}><h2>Новый личный чат</h2><p>Найдите пользователя по имени или имени пользователя.</p><form className="user-search-form" onSubmit={e => void findUsers(e)}><input autoFocus value={userQuery} onChange={e => setUserQuery(e.target.value)} maxLength={50} placeholder="Введите имя или username"/><button className="auth-submit" type="submit" disabled={busy || userQuery.trim().length < 2}>{busy ? "Поиск…" : "Найти"}</button></form>{error && <div className="inline-error">{error}</div>}<div className="user-results">{userResults.map(result => <button key={result.id} onClick={() => void startDirectChat(result)} disabled={busy}><span className="result-avatar">{result.displayName.slice(0,1).toUpperCase()}</span><span><strong>{result.displayName}</strong><small>@{result.username}</small></span><MessageCircle size={17}/></button>)}{userResults.length === 0 && <span className="results-hint">Введите поисковый запрос, чтобы найти людей.</span>}</div><div className="modal-actions"><button type="button" onClick={() => setShowUserSearch(false)}>Закрыть</button></div></section></div>}
     {showCreate && <div className="modal-backdrop" onClick={() => setShowCreate(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void createConversation(e)}><h2>{newKind === "group" ? "Создать группу" : "Создать канал"}</h2><p>{newKind === "group" ? "Создайте пространство для общения." : "Создайте канал для публикаций."}</p><label>Название<input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)} maxLength={120} required placeholder={newKind === "group" ? "Название группы" : "Название канала"}/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowCreate(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !newTitle.trim()}>{busy ? "Создание…" : "Создать"}</button></div></form></div>}
   </main>;
