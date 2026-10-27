@@ -98,6 +98,7 @@ func(s *server)listMessages(w http.ResponseWriter,r *http.Request){
 func(s *server)sendMessage(w http.ResponseWriter,r *http.Request){
  var in sendMessageRequest;if !decodeJSON(w,r,&in){return};in.Body=strings.TrimSpace(in.Body);if in.Body==""||len([]rune(in.Body))>4000{writeError(w,400,"message must contain 1-4000 characters");return}
  uid,cid:=r.Context().Value(userIDKey).(string),r.PathValue("id");if !s.isMember(r.Context(),cid,uid){writeError(w,404,"conversation not found");return}
+ var kind,role string; if err:=s.db.QueryRow(r.Context(),`SELECT c.kind,cm.role FROM conversations c JOIN conversation_members cm ON cm.conversation_id=c.id AND cm.user_id=$2 WHERE c.id=$1`,cid,uid).Scan(&kind,&role);err!=nil{writeError(w,404,"conversation not found");return};if kind=="channel"&&role!="owner"&&role!="admin"{writeError(w,403,"only channel owners and admins can publish messages");return}
  var m message;err:=s.db.QueryRow(r.Context(),`INSERT INTO messages(id,conversation_id,sender_id,body) VALUES(gen_random_uuid(),$1,$2,$3) RETURNING id::text,conversation_id::text,sender_id::text,body,created_at`,cid,uid,in.Body).Scan(&m.ID,&m.ConversationID,&m.SenderID,&m.Body,&m.CreatedAt)
  if err!=nil{writeError(w,500,"could not save message");return};if s.hub!=nil{s.hub.broadcast(cid,m)};writeJSON(w,201,m)
 }
