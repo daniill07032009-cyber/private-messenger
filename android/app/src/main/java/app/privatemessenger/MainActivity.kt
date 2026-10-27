@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -221,6 +222,8 @@ private fun MessengerApp() {
     var chats by remember { mutableStateOf<List<ChatItem>>(emptyList()) }
     var active by remember { mutableStateOf<ChatItem?>(null) }
     var messages by remember { mutableStateOf<List<MessageItem>>(emptyList()) }
+    var showMessageSearch by remember { mutableStateOf(false) }
+    var messageSearch by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf("") }
     var createKind by remember { mutableStateOf<String?>(null) }
     var showUserSearch by remember { mutableStateOf(false) }
@@ -394,9 +397,16 @@ private fun MessengerApp() {
                             if (active == null) {
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Выберите чат", color = Muted) }
                             } else {
-                                Text(active!!.title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth().padding(14.dp))
+                                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(active!!.title, color = Color.White, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                    TextButton(onClick = { showMessageSearch = !showMessageSearch; messageSearch = "" }) { Icon(Icons.Default.Search, contentDescription = "Поиск"); Text("Поиск") }
+                                }
+                                if (showMessageSearch) {
+                                    OutlinedTextField(messageSearch, { messageSearch = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp), singleLine = true, placeholder = { Text("Найти в переписке…") }, trailingIcon = { Text("${messages.count { it.body.contains(messageSearch.trim(), ignoreCase = true) }}") })
+                                }
+                                val visibleMessages = messages.filter { messageSearch.isBlank() || it.body.contains(messageSearch.trim(), ignoreCase = true) }
                                 LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(messages, key = { it.id }) { message ->
+                                    items(visibleMessages, key = { it.id }) { message ->
                                         val own = message.senderId == account!!.id
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = if (own) Arrangement.End else Arrangement.Start) {
                                             Column(Modifier.widthIn(max = 270.dp).background(if (own) Color(0xFF234B69) else Background, RoundedCornerShape(13.dp)).padding(horizontal = 11.dp, vertical = 8.dp)) {
