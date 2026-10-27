@@ -1,46 +1,33 @@
 # Roadmap
 
-This is a staged plan, not a claim that all Telegram features already exist.
+## Foundations and account API
+- [x] Go API and health endpoint
+- [x] PostgreSQL schema and startup migrations
+- [x] Registration and login with bcrypt
+- [x] Hashed expiring sessions in HttpOnly cookies
+- [x] Authenticated group/channel creation and membership-protected message endpoints
+- [x] Web API client contract
+- [ ] Integration tests against PostgreSQL
+- [ ] Rate limiting, verification and account recovery
 
-## Phase 1 — foundations
-- [x] Repository scaffold and CI
-- [x] Minimal Go health endpoint
-- [x] Initial web chat-list and conversation UI (demo data only)
-- [ ] Configuration validation and structured logging
-- [ ] PostgreSQL migrations and repository layer
+## Real-time messaging
+- [ ] Connect web UI to authenticated API
+- [ ] Direct messages and user discovery
+- [ ] WebSocket delivery, acknowledgements and reconnect
+- [ ] Read receipts, edits, deletes, replies, forwards and reactions
+- [ ] Pagination, drafts, pins, search and attachment uploads
 
-## Phase 2 — accounts and direct messages
-- [ ] Registration, login, verification strategy
-- [ ] Password hashing, session rotation, logout and device sessions
-- [ ] Profiles, usernames, contacts and blocking
-- [ ] Persisted conversations and messages
-- [ ] Authenticated WebSocket, delivery acknowledgements and reconnect
-
-## Phase 3 — messaging
-- [ ] Replies, forwards, edits, deletes and read states
-- [ ] Reactions, pinned messages, drafts and search
-- [ ] Attachments, upload authorization and limits
-- [ ] Message pagination and abuse controls
-
-## Phase 4 — groups and channels
-- [ ] Owners, administrators, roles and permissions
+## Groups and channels
+- [ ] Owner/admin permissions and ownership transfer
 - [ ] Public/private visibility and invite links
-- [ ] Moderation, reports, mute and member management
+- [ ] Moderation, reporting, muting and member management
 - [ ] Channel publishing and subscriber delivery
 
-## Phase 5 — Android
-- [ ] Native Kotlin app and secure token storage
-- [ ] Device registration, push notifications and deep links
-- [ ] Shared API contract and integration tests
+## Android
+- [ ] Connect native Kotlin app to the shared API
+- [ ] Device sessions, push notifications and offline sync
 
-## Phase 6 — calls and production
-- [ ] Voice messages and cancellation before send
-- [ ] WebRTC audio/video calls and TURN
-- [ ] Push delivery, observability, backups and recovery
-- [ ] Threat modeling, independent security review and load tests
-
-## Security requirements
-- Use reviewed password hashing and secure session handling.
-- Enforce server-side authorization for every conversation and attachment.
-- Do not invent custom end-to-end encryption.
-- Never commit production credentials.
+## Production
+- [ ] Voice messages and WebRTC calls/TURN
+- [ ] Observability, backups, abuse prevention and recovery drills
+- [ ] Threat modeling and independent security review

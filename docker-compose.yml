@@ -1,9 +1,31 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: messenger
+      POSTGRES_USER: messenger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-only-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messenger -d messenger"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
   api:
-    build: { context: ., dockerfile: Dockerfile }
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
       HTTP_ADDR: ":8080"
+      DATABASE_URL: postgres://messenger:${POSTGRES_PASSWORD:-local-only-change-me}@db:5432/messenger?sslmode=disable
+      WEB_ORIGIN: http://localhost:5173
+      COOKIE_SECURE: "false"
     ports: ["8080:8080"]
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
   web:
     image: node:22-alpine
@@ -11,9 +33,10 @@ services:
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules
-    command: sh -c "npm install && npm run dev"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     ports: ["5173:5173"]
     depends_on: [api]
     restart: unless-stopped
 volumes:
+  postgres_data:
   web_node_modules:
