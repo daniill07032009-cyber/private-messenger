@@ -33,6 +33,7 @@ export default function App() {
   const [groupSettings, setGroupSettings] = useState<ApiGroupSettings | null>(null);
   const [groupMembers, setGroupMembers] = useState<ApiGroupMember[]>([]);
   const [inviteCode, setInviteCode] = useState("");
+  const [inviteLink, setInviteLink] = useState("");
   const [showJoinInvite, setShowJoinInvite] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,7 +47,7 @@ export default function App() {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!showInfo || !current || current.kind === "direct") { setGroupSettings(null); setGroupMembers([]); setInviteCode(""); return; }
+    if (!showInfo || !current || current.kind === "direct") { setGroupSettings(null); setGroupMembers([]); setInviteCode(""); setInviteLink(""); return; }
     let cancelled = false;
     Promise.all([api.groupSettings(current.id), api.groupMembers(current.id)]).then(([settings, members]) => {
       if (!cancelled) { setGroupSettings(settings); setGroupMembers(members); }
@@ -76,6 +77,23 @@ export default function App() {
   useEffect(() => {
     api.me().then(async found => { setUser(found); await refreshChats(); }).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const code = new URLSearchParams(window.location.search).get("invite");
+    if (!code) return;
+    let cancelled = false;
+    api.joinInvite(code).then(async joined => {
+      if (cancelled) return;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("invite");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      await refreshChats(joined.id);
+    }).catch(e => {
+      if (!cancelled) setError(e instanceof Error ? e.message : "Не удалось открыть приглашение");
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // WebSocket delivers new messages immediately; periodic REST refresh is the reconnect fallback.
   useEffect(() => {
@@ -215,16 +233,20 @@ export default function App() {
     try {
       const result = await api.createInvite(current.id);
       setInviteCode(result.code);
+      const link = new URL(window.location.href); link.searchParams.set("invite", result.code);
+      const shareUrl = link.toString(); setInviteLink(shareUrl);
       await refreshGroupDetails();
-      try { await navigator.clipboard.writeText(result.code); }
+      try { await navigator.clipboard.writeText(shareUrl); }
       catch { /* the code remains visible so it can be copied manually */ }
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось создать приглашение"); }
   }
 
   async function joinByInvite(event: FormEvent) {
     event.preventDefault();
-    const code = joinCode.trim();
-    if (!code) return;
+    const rawCode = joinCode.trim();
+    if (!rawCode) return;
+    let code = rawCode;
+    try { const parsed = new URL(rawCode); code = parsed.searchParams.get("invite") || rawCode; } catch { /* treat input as a raw invite code */ }
     setBusy(true); setError("");
     try {
       const joined = await api.joinInvite(code);
@@ -286,7 +308,7 @@ export default function App() {
       </div>)}
       {groupSettings && <div className="group-visibility"><div><Globe size={15}/><span><strong>{groupSettings.isPublic ? "Публичная" : "Приватная"}</strong><small>{groupSettings.isPublic ? "Видна в списке публичных групп" : "Вступление по приглашению"}</small></span></div><button disabled={groupSettings.currentRole !== "owner"} onClick={() => void changeGroupVisibility(!groupSettings.isPublic)}>{groupSettings.isPublic ? "Сделать приватной" : "Сделать публичной"}</button></div>}
       {groupSettings?.currentRole === "owner" && <button className="invite-button" onClick={() => void createGroupInvite()}><Copy size={15}/> Создать / обновить код приглашения</button>}
-      {inviteCode && <div className="invite-code"><small>Код приглашения (скопирован, если браузер разрешил)</small><code>{inviteCode}</code><button onClick={() => void navigator.clipboard?.writeText(inviteCode).catch(() => undefined)}><Copy size={13}/> Копировать ещё раз</button></div>}
+      {inviteCode && <div className="invite-code"><small>Ссылка-приглашение (скопирована, если браузер разрешил)</small><code>{inviteLink || inviteCode}</code><button onClick={() => void navigator.clipboard?.writeText(inviteLink || inviteCode).catch(() => undefined)}><Copy size={13}/> Копировать ссылку</button></div>}
     </div> : <div className="info-actions"><button type="button" title="Настройки уведомлений появятся позже"><Bell size={16}/> Уведомления · скоро</button><button type="button" title="Архивирование чатов ещё не реализовано"><Archive size={16}/> Архив · скоро</button><button type="button" title="Политика безопасности сервера"><ShieldCheck size={16}/> Безопасность</button><button type="button" onClick={() => { setShowInfo(false); setError("Для помощи обратитесь к администратору сервера."); }}><CircleHelp size={16}/> Помощь</button></div>}<div className="info-note"><LockKeyhole size={16}/> Сессия защищена HttpOnly-cookie.</div><button className="info-link" onClick={() => void signOut()}><LogOut size={16}/> Выйти из аккаунта</button></aside>}
     {showUserSearch && <div className="modal-backdrop" onClick={() => setShowUserSearch(false)}><section className="create-modal" onClick={e => e.stopPropagation()}><h2>Новый личный чат</h2><p>Найдите пользователя по имени или имени пользователя.</p><form className="user-search-form" onSubmit={e => void findUsers(e)}><input autoFocus value={userQuery} onChange={e => setUserQuery(e.target.value)} maxLength={50} placeholder="Введите имя или username"/><button className="auth-submit" type="submit" disabled={busy || userQuery.trim().length < 2}>{busy ? "Поиск…" : "Найти"}</button></form>{error && <div className="inline-error">{error}</div>}<div className="user-results">{userResults.map(result => <button key={result.id} onClick={() => void startDirectChat(result)} disabled={busy}><span className="result-avatar">{result.displayName.slice(0,1).toUpperCase()}</span><span><strong>{result.displayName}</strong><small>@{result.username}</small></span><MessageCircle size={17}/></button>)}{userResults.length === 0 && <span className="results-hint">Введите поисковый запрос, чтобы найти людей.</span>}</div><div className="modal-actions"><button type="button" onClick={() => setShowUserSearch(false)}>Закрыть</button></div></section></div>}
     {showJoinInvite && <div className="modal-backdrop" onClick={() => setShowJoinInvite(false)}><form className="create-modal" onClick={e => e.stopPropagation()} onSubmit={e => void joinByInvite(e)}><h2>Вступить в группу или канал</h2><p>Вставьте код приглашения, который вам отправил владелец.</p><label>Код приглашения<input autoFocus value={joinCode} onChange={e => setJoinCode(e.target.value)} maxLength={64} required placeholder="Вставьте код приглашения"/></label>{error && <div className="inline-error">{error}</div>}<div className="modal-actions"><button type="button" onClick={() => setShowJoinInvite(false)}>Отмена</button><button className="auth-submit" type="submit" disabled={busy || !joinCode.trim()}>{busy ? "Подключение…" : "Вступить"}</button></div></form></div>}
